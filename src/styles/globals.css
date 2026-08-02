@@ -1,0 +1,104 @@
+@import './tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    /* Set from the theme cookie in the root layout, before hydration, so there
+       is no flash of the wrong theme — §6.2 makes this an acceptance criterion,
+       not a nicety. */
+    background: var(--canvas);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--t-body-size);
+    line-height: var(--t-body-lh);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* §6.3: tabular figures on every column of numbers, every table cell, every
+     axis tick. Proportional figures are reserved for the one hero number per
+     screen, which opts back in with `.tnum-off`. */
+  table,
+  [data-numeric],
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tnum-off {
+    font-variant-numeric: proportional-nums;
+  }
+
+  /* §6.7: a visible focus ring at 2px offset, in the theme-correct hue. The
+     token is indirected precisely so no component has to know which theme it
+     is in. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--r-sm);
+  }
+
+  /* Remove the ring for pointer users while keeping it for keyboard users. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background: var(--brand);
+    color: var(--text-primary);
+  }
+
+  /* Native controls, scrollbars and autofill follow the selected theme because
+     `color-scheme` is set on :root in tokens.css. */
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* The one motion the user should consciously notice is the bar animating on
+     recompute (§6.6), and even that respects the reduced-motion preference via
+     the duration tokens. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Screen-reader-only text. Used for the live regions that announce recompute
+     results (§6.7) and for icon-adjacent labels. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}

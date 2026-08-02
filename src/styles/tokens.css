@@ -1,0 +1,193 @@
+/**
+ * tokens.css — THE single source of design truth (§6.1).
+ *
+ * "All tokens live in exactly one file. No component may contain a raw hex,
+ * rgba, px font size, or px radius. Swapping to a different design system must
+ * be a single-file edit."
+ *
+ * That rule is not stylistic tidiness — it is the mitigation for the one
+ * genuinely unresolved question in the spec (§6.1, §13.2 item 1). The owner
+ * asked for "the 70mm Sentry app design"; no such skill or plugin exists, so
+ * this build proceeds on the documented Sentry assumption. If that assumption
+ * is wrong, the cost of reversing it is editing this file and nothing else.
+ * See DECISIONS.md D-050.
+ *
+ * Light mode is an AUTHORED palette, not a generated inversion (§6.2, §13.2
+ * item 5). Every value below was chosen for its own surface and contrast-
+ * verified against it. Never derive one theme from the other with a filter,
+ * `invert()`, or a lightness negation — doing so produces unreadable brand and
+ * status colours, which is the specific failure mode the spec calls out.
+ *
+ * Contrast ratios in the comments are measured against `--surface-1` in the
+ * respective theme and are the figures the axe CI gate enforces (§6.7).
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --canvas: #150f23;         /* page background, deepest */
+  --surface-1: #1f1633;      /* cards, panels */
+  --surface-2: #2a2044;      /* raised / hover */
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.1);
+  --border: #362d59;
+  --border-strong: #584674;
+
+  /* ink */
+  --text-primary: #ffffff;   /* 17.2:1 on surface-1 */
+  --text-secondary: #c9c5d4; /* 10.2:1 */
+  --text-muted: #9a93ad;     /*  5.9:1 */
+
+  /* brand */
+  --brand: #6a5fc1;          /* 3.3:1 — FILLS, BORDERS, LARGE TEXT ONLY. Never body text. */
+  --brand-deep: #422082;
+  --accent-lime: #c2ef4e;    /* 12.9:1 — primary CTA, focus ring, key figure */
+  --accent-coral: #ffb287;   /*  9.8:1 */
+  --accent-pink: #fa7faa;    /*  7.1:1 */
+
+  /* The ink to place ON a filled accent. In dark mode the accents are light,
+     so their ink is the deep canvas rather than the primary text colour. */
+  --accent-lime-ink: #150f23;
+  --accent-coral-ink: #150f23;
+
+  /* status — always paired with an icon and a label, never colour alone (§6.7) */
+  --status-good: #4ade80;    /*  9.9:1 */
+  --status-warning: #fbbf24; /* 10.3:1 */
+  --status-critical: #f87171;/*  6.2:1 */
+
+  /* Ink placed on a filled status chip. */
+  --status-ink: #150f23;
+
+  /* data viz — §6.5. Three hues, computationally verified on THIS surface:
+     worst-pair CVD ΔE 9.8 (deutan), normal-vision 22.5, all ≥ 3:1.
+     A fourth cannot pass the separation gates. Do not generate one. */
+  --series-1: #859a33;
+  --series-2: #3198d6;
+  --series-3: #ce6a8c;
+
+  /* Focus ring. Indirected because the correct hue differs by theme (§6.7):
+     lime is too low-contrast on white to serve as a ring in light mode.
+     Components reference --focus-ring only, and never choose. (D-053) */
+  --focus-ring: var(--accent-lime);
+
+  /* elevation — used sparingly; this is a flat, dense UI */
+  --e-1: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --e-2: 0 4px 12px rgba(0, 0, 0, 0.32);
+  --e-glass: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/**
+ * Light mode — a *selected* theme, contrast-verified against its own surface.
+ * Ships in v1 alongside dark (§13.2 item 5: "If schedule pressure hits, cut a
+ * feature, not a theme").
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* surfaces — a faint purple cast keeps the brand identity without tinting content */
+  --canvas: #f7f6fa;
+  --surface-1: #ffffff;
+  --surface-2: #f1eff7;
+  --glass: rgba(23, 18, 42, 0.04);
+  --glass-hover: rgba(23, 18, 42, 0.07);
+  --border: #e3e0ee;
+  --border-strong: #c9c4dc;
+
+  /* ink */
+  --text-primary: #17122a;   /* 18.2:1 on surface-1 */
+  --text-secondary: #4a4460; /*  9.2:1 */
+  --text-muted: #6f6889;     /*  5.2:1 */
+
+  /* brand — a darker step than dark mode's, so it clears body-text contrast here */
+  --brand: #5b4fb5;          /* 6.5:1 — usable for body text in THIS mode */
+  --brand-deep: #422082;     /* 11.9:1 */
+  --accent-lime: #c2ef4e;    /* FILL ONLY in light mode — pair with --text-primary ink, 13.6:1 */
+  --accent-lime-ink: #4c5c0f;/* 7.4:1 — the lime *text/icon* step */
+  --accent-coral: #ffb287;   /* fill only; ink on it 10.4:1 */
+  --accent-coral-ink: #a8501c;/* 5.5:1 */
+  --accent-pink: #b6537a;
+
+  /* status — darker steps; still always icon + label, never colour alone */
+  --status-good: #146d34;
+  --status-warning: #a35c05;
+  --status-critical: #c02626;
+
+  --status-ink: #ffffff;
+
+  /* data viz — the SAME three hues as dark, re-stepped for this surface.
+     Not a separate palette and not an inversion: a series keeps its identity
+     when the user flips themes, which is the whole point (§6.5).
+     Verified: worst-pair CVD ΔE 9.8 (deutan), normal-vision 22.6, all ≥ 3:1. */
+  --series-1: #718516;
+  --series-2: #0c82bf;
+  --series-3: #b65577;
+
+  /* The lime ring is too low-contrast on white; the brand step is the ring here. */
+  --focus-ring: var(--brand);
+
+  /* elevation reads differently on light: softer, tighter */
+  --e-1: 0 1px 2px rgba(23, 18, 42, 0.06);
+  --e-2: 0 4px 12px rgba(23, 18, 42, 0.1);
+  --e-glass: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/**
+ * Radii, spacing, type and motion are SHARED — they do not vary by theme
+ * (§6.2). Only colour and elevation do. Declared once, outside both blocks.
+ */
+:root {
+  /* radii */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* spacing: 4px base, 8px rhythm */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* type — §6.3. A product scale, not Sentry's marketing scale: 88px heroes and
+     uppercase buttons are wrong for a data product. No display face. */
+  --font-ui: var(--font-rubik), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --t-display-size: 34px;   --t-display-lh: 1.15; --t-display-weight: 600;
+  --t-h1-size: 24px;        --t-h1-lh: 1.25;      --t-h1-weight: 600;
+  --t-h2-size: 18px;        --t-h2-lh: 1.3;       --t-h2-weight: 600;
+  --t-h3-size: 15px;        --t-h3-lh: 1.4;       --t-h3-weight: 600;
+  --t-body-size: 14px;      --t-body-lh: 1.55;    --t-body-weight: 400;
+  --t-sm-size: 13px;        --t-sm-lh: 1.45;      --t-sm-weight: 400;
+  --t-xs-size: 11.5px;      --t-xs-lh: 1.4;       --t-xs-weight: 500;
+  --t-label-size: 11px;     --t-label-lh: 1.3;    --t-label-weight: 600;
+  --t-label-tracking: 0.06em;
+
+  /* motion — §6.6. Transitions on opacity, transform and width only.
+     Never height, never a layout-triggering property. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* layout */
+  --sidebar-width: 220px;
+  --sidebar-rail: 56px;
+  --input-column: 400px;
+}
+
+/**
+ * §6.6: respect `prefers-reduced-motion` by dropping to 0ms *everywhere*, not
+ * by shortening. The animating bar on recompute is the only motion the user
+ * should consciously notice, and even that goes when it is not wanted.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+  }
+}

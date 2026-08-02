@@ -1,0 +1,290 @@
+name: CI
+
+# §10.4: "Every PR: typecheck, lint, unit, integration, component, axe. Every
+# merge to main additionally runs E2E, visual regression, Lighthouse budget,
+# then deploy. A red gate blocks merge; do not add `continue-on-error`."
+#
+# Every job below runs on every PR and on every push to main (so main never
+# has an unchecked commit on it either). The four "additionally" jobs —
+# e2e, visual-regression, lighthouse, deploy — are gated to push-to-main only
+# via `if:`, and `deploy` itself requires all of them, plus the PR-gate jobs,
+# to have succeeded first.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  # ---------------------------------------------------------------- every PR
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm typecheck
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm lint
+
+  unit:
+    name: Unit tests (engine, application, infrastructure, lib)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # §10.1: "the engine is the product... 100% of branches." Scoped away
+      # from src/components/** and src/app/** (jsdom, component-test territory
+      # — see the `component` job) so this stays the fast, DB-free layer.
+      - run: pnpm exec vitest run src/domain src/application src/infrastructure src/lib --coverage
+
+  component:
+    name: Component tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm exec vitest run src/components src/app
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: parity
+          POSTGRES_PASSWORD: parity
+          POSTGRES_DB: parity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://parity:parity@localhost:5432/parity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm db:migrate
+      # No `*.integration.test.ts` files exist yet in this build — see
+      # DECISIONS.md / the E2E report for why (five other agents are still
+      # landing the API routes an integration suite would exercise, per
+      # §10.2: "Integration: API routes against a real Postgres... including
+      # the booking → auto-claim side effect and the claim → savings-event
+      # side effect"). `--passWithNoTests` keeps this job green today without
+      # weakening it: the moment a `*.integration.test.ts` file lands, this
+      # job starts actually gating on it, against the real Postgres service
+      # container above — nothing else needs to change.
+      - run: pnpm exec vitest run integration --passWithNoTests
+
+  # `axe`, `e2e`, `visual-regression` and `lighthouse` all launch Playwright's
+  # `playwright.config.ts` `webServer`, which is `pnpm build && pnpm start` —
+  # a production server, not `pnpm dev` (see that file's header for why: dev
+  # mode's lazy per-route compilation caused exactly the kind of parallel-
+  # worker flakiness §10.4 warns a red gate must never have). That server
+  # needs a real, *migrated and seeded* Postgres to test anything beyond the
+  # DB-free surface: without one, every DB-touching route falls back to its
+  # empty/error state, and — measured directly while building this workflow
+  # — concurrent requests against an *unreachable* one queue behind
+  # `postgres-js`'s connection retries for 10-30s each, which reads exactly
+  # like a real timeout or a real axe violation but is neither. Each of these
+  # four jobs therefore gets its own Postgres service container plus
+  # `db:migrate`/`db:seed`, mirroring the `integration` job above.
+  axe:
+    name: Accessibility (axe, both themes)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: parity
+          POSTGRES_PASSWORD: parity
+          POSTGRES_DB: parity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://parity:parity@localhost:5432/parity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm db:migrate && pnpm db:seed
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright test e2e/accessibility.spec.ts
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-axe
+          path: playwright-report/
+          retention-days: 14
+
+  # ------------------------------------------------------- main merges only
+
+  e2e:
+    name: E2E (§10.3 flows)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [typecheck, lint, unit, integration, component, axe]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: parity
+          POSTGRES_PASSWORD: parity
+          POSTGRES_DB: parity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://parity:parity@localhost:5432/parity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm db:migrate && pnpm db:seed
+      - run: pnpm exec playwright install --with-deps chromium
+      # `claim-lifecycle` and `deadline-expiry` were left `test.fixme()` by
+      # the agent that wrote them, for lack of a database reachable *in that
+      # sandbox* (Docker Hub was unreachable there) — not for a code or route
+      # that's missing. With a real Postgres here, both are worth attempting
+      # for real; `--reporter=list` still reports `fixme` distinctly from a
+      # pass, so this does not silently mask either one still being blocked.
+      - run: >-
+          pnpm exec playwright test
+          e2e/compare-and-decide.spec.ts
+          e2e/claim-lifecycle.spec.ts
+          e2e/deadline-expiry.spec.ts
+          e2e/clawback-guard.spec.ts
+          e2e/fhr-asymmetry.spec.ts
+          e2e/mobile-compare.spec.ts
+          e2e/theme-no-flash.spec.ts
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-e2e
+          path: playwright-report/
+          retention-days: 14
+
+  visual-regression:
+    name: Visual regression (both themes, 390/768/1440)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [typecheck, lint, unit, integration, component, axe]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: parity
+          POSTGRES_PASSWORD: parity
+          POSTGRES_DB: parity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://parity:parity@localhost:5432/parity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm db:migrate && pnpm db:seed
+      - run: pnpm exec playwright install --with-deps chromium
+      # First run on this platform: `toHaveScreenshot` writes the baseline
+      # and still fails (see `visual-regression.spec.ts`'s file header) — by
+      # design, so a baseline is never silently created without a human
+      # looking at it first. A maintainer downloads the `playwright-report-
+      # visual` artifact below, reviews the generated images, and commits
+      # `e2e/visual-regression.spec.ts-snapshots/*-linux.png` deliberately
+      # once the visual design is stable enough to be worth pinning; from
+      # then on this job compares against the real thing.
+      - run: pnpm exec playwright test e2e/visual-regression.spec.ts
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-visual
+          path: playwright-report/
+          retention-days: 14
+
+  lighthouse:
+    name: Lighthouse budget
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [typecheck, lint, unit, integration, component, axe]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: parity
+          POSTGRES_PASSWORD: parity
+          POSTGRES_DB: parity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://parity:parity@localhost:5432/parity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm db:migrate && pnpm db:seed
+      - run: pnpm build
+      # §0.4: "Lighthouse: performance ≥ 90, accessibility ≥ 95 on the two
+      # main screens" — /login and /compare, the only two screens that exist
+      # in this build (lighthouserc.json). Thresholds enforced via
+      # `lighthouserc.json`'s `assert.assertions`; a failing budget fails
+      # this job, and there is no `continue-on-error` on it.
+      - uses: treosh/lighthouse-ci-action@v11
+        with:
+          configPath: ./lighthouserc.json
+
+  deploy:
+    name: Deploy (Vercel)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [e2e, visual-regression, lighthouse]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # §0.4: "The app is deployed to Vercel with a working URL." Requires
+      # VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID as repository
+      # secrets — not configured by this change (no Vercel project exists to
+      # point at yet). Until they're set, this step fails loudly rather than
+      # silently no-op'ing, which is the correct failure mode for a deploy
+      # step: a red `deploy` job after a green `e2e`/`visual-regression`/
+      # `lighthouse` run means "ready to ship, missing credentials," not
+      # "something is broken."
+      - name: Deploy to Vercel
+        run: pnpm dlx vercel deploy --prod --token="$VERCEL_TOKEN" --yes
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

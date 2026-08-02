@@ -1,0 +1,206 @@
+# Parity
+
+**Which channel should I book through, by how much does it win, and what do I forfeit by
+choosing wrong — and then, did I actually collect it?**
+
+Parity takes hotel rates you have already looked up, applies the current rules of Amex Fine
+Hotels + Resorts, Chase's The Edit, chain best-rate guarantees and Chase's price-match
+guarantee, and ranks every booking channel by **effective net cost** — sticker minus perks,
+statement credits, points value and any price-match refund.
+
+Then it does the part that captures the money: tracks the 24-hour price-match claim window,
+generates the claim evidence, tracks six use-it-or-lose-it statement credit buckets across two
+cards, and reminds you to re-shop refundable bookings before the cancellation deadline.
+
+Built from a detailed product spec (`parity-build-spec.md`, not included here). Judgment calls are
+logged in [`DECISIONS.md`](./DECISIONS.md); the domain restated in plain language is in
+[`DOMAIN-UNDERSTANDING.md`](./DOMAIN-UNDERSTANDING.md).
+
+---
+
+## Local setup from a clean clone
+
+Eight commands.
+
+```bash
+corepack enable && corepack prepare pnpm@9.15.4 --activate
+```
+
+```bash
+pnpm install
+```
+
+```bash
+cp .env.example .env
+```
+
+```bash
+docker run -d --name parity-db -e POSTGRES_PASSWORD=parity -e POSTGRES_USER=parity -e POSTGRES_DB=parity -p 5432:5432 postgres:16
+```
+
+```bash
+pnpm db:migrate
+```
+
+```bash
+pnpm db:seed
+```
+
+```bash
+pnpm test
+```
+
+```bash
+pnpm dev
+```
+
+Then open <http://localhost:3000>. Set `PARITY_DEMO_USER` in `.env` to sign in without
+configuring email — it is refused in production.
+
+If you have a Postgres already, skip the `docker run` and point `DATABASE_URL` at it.
+
+---
+
+## What runs what
+
+| Command | Does |
+|---|---|
+| `pnpm dev` | Next.js dev server |
+| `pnpm build` | Production build. Zero TypeScript errors under `strict` is a gate, not a goal |
+| `pnpm test` | Vitest — engine fixtures, property tests, aggregates, components, application layer |
+| `pnpm test:coverage` | Coverage. **The engine is held at 100% of branches** and CI fails below it |
+| `pnpm test:engine` | Just the domain layer — fast, and the only tests that gate a money change |
+| `pnpm test:e2e` | Playwright, the §10.3 flows |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm lint` | ESLint |
+| `pnpm db:generate` | Regenerate the SQL migration after a schema edit |
+| `pnpm db:migrate` | Apply migrations |
+| `pnpm db:seed` | ~45 properties, six credit buckets, a demo account |
+
+---
+
+## Architecture
+
+Hexagonal, with a hard rule: **the domain layer imports nothing from infrastructure.**
+
+```
+src/
+  domain/            pure. no I/O, no clock, no network, no React
+    shared/          Cents, Money, Entity, AggregateRoot, DomainEvent, Clock, Result
+    rules/           every threshold as versioned data with verifiedOn + sourceUrl
+    engine/          the savings engine — pure functions + the SavingsEngine service
+    credit/          CreditBucket aggregate: the clawback rule
+    claim/           Claim aggregate: the 24-hour window and its state machine
+    booking/         Booking aggregate: raises the event that opens a claim
+  application/       use cases (all instrumented), ports, mappers, composition root
+  infrastructure/    Drizzle schema and queries, logging, metrics, seeds
+  components/        UI primitives (token-only) + domain components
+  features/          screen-level client components
+  app/               Next.js routes
+  styles/tokens.css  every design value in the product, in one file
+```
+
+### Three decisions worth knowing about
+
+**The engine is pure functions; the aggregates wrap them.** The spec requires a pure,
+dependency-free engine, and DDD aggregates need identity and mutation — the opposite. So the
+arithmetic lives in free functions that the §3.8 fixtures test directly, and `Comparison`,
+`Booking`, `Claim` and `CreditBucket` own the invariants and transitions and call the engine as
+a stateless service. Neither layer is compromised: the functions have no `this`, the aggregates
+have no formulas. (`DECISIONS.md` D-030.)
+
+**Every use case is instrumented by construction, not by convention.** `UseCase.execute()` is
+the only public entry point and it wraps the subclass's `handle()` with a timer, a structured
+log line carrying the request id, a latency histogram, outcome counters and a budget check.
+`handle()` is `protected abstract`, so a use case physically cannot run unmeasured. Metrics are
+in-process and pulled from `/api/metrics` — §12 rules out a telemetry vendor, so nothing leaves
+the deployment. (D-040, D-042.)
+
+**All design values live in `src/styles/tokens.css` and nowhere else.** No component contains a
+raw hex, rgba, px font size or px radius; `tailwind.config.ts` resolves every class to a
+`var()`. This is the mitigation for the one genuinely unresolved question in the spec (§6.1 —
+the owner asked for "the 70mm Sentry app design" and no such thing was found): if the
+assumption is wrong, reversing it is a one-file edit. (D-050.)
+
+---
+
+## The parts that are easy to get wrong
+
+Four things in this domain are counterintuitive enough that they each have a dedicated fixture
+or aggregate, and changing any of them should make a test go red.
+
+**Amex FHR cannot be price matched.** Amex's rate guarantee explicitly excludes Fine Hotels +
+Resorts and The Hotel Collection — exactly the programmes a Platinum holder uses. An FHR markup
+is permanent; an Edit markup is claimable for 24 hours. That is asymmetric *risk*, not
+asymmetric price, so it cannot be read off the ranking, which is why §8.4 requires it rendered
+as a persistent note. Fixture **TC-06** is the tripwire for the inverse bug — applying Chase's
+logic to an Amex channel.
+
+**Credits are computed after the refund.** A statement credit keys off what you actually
+charged, and a price-match refund lowers that charge. Reversing the order produces a plausible,
+too-generous number in exactly the case where the user most needs the truth. Fixture **TC-05**
+pins it: a $400 booking with a $222.37 refund keeps only $177.63 of a $250 credit, and $72.37
+evaporates.
+
+**`minCashFloor = face + expectedRefund` is the most actionable number in the product.** It is
+the answer to "how do I not lose part of that credit", it has to be on screen *before* the user
+leaves for the portal, and §8.3 requires it phrased as an instruction naming the number and the
+consequence — "Charge at least $472.37" — not as a statistic.
+
+**Effective net can legitimately be negative.** Perks plus credits plus refund can exceed a
+cheap stay's total. The engine returns the true negative, the UI clamps only the bar length,
+and the `OVER_SUBSIDIZED` warning fires so an inflated breakfast valuation gets questioned
+rather than celebrated.
+
+---
+
+## Testing
+
+| Layer | Tool | Standard |
+|---|---|---|
+| Engine | Vitest + fast-check | Every §3.8 fixture as an executable test, plus the §3.9 properties. **100% of branches.** |
+| Aggregates | Vitest | Including DST and UTC-midnight crossings on the 24-hour claim window |
+| Components | Testing Library | Every state in §6.4, `CurrencyInput` exhaustively |
+| Application | Vitest | That instrumentation actually fires, and that the API layer and the engine agree |
+| E2E | Playwright | The §10.3 flows, at 1440px and 390px |
+
+Two rules from §10.2 that are load-bearing: **never mock the engine**, and **never mock time in
+a way that hides a timezone bug** — the clock is injected as a parameter, which is what makes
+the DST tests possible at all.
+
+The fixtures in §3.8 are ground truth. If the implementation disagrees with one, the
+implementation is wrong. Do not edit a fixture to make a test pass.
+
+---
+
+## What this deliberately does not do
+
+Building any of these would be a failure, not a bonus:
+
+- **No scraping, ever.** No headless browser against amextravel.com, chase.com or any OTA.
+- **No stored credentials.** Parity never asks for, stores, transmits or proxies a bank,
+  card-issuer or hotel-portal password. There is no OAuth-shaped workaround.
+- **No live rate feeds** in v1. Rates come from you.
+- **No booking.** Parity ranks and reminds; you book in the portal yourself.
+- **No LLM anywhere in a numeric path.** The engine is deterministic arithmetic. Text
+  summarisation is permitted only behind a feature flag, clearly labelled, and never feeding
+  back into a number you see.
+- **No affiliate links.** If they are ever added they must be disclosed inline and must never
+  influence ranking — the ranking function stays a pure function of the numbers, because that
+  is the product's entire credibility.
+
+Analytics, if added, must be self-hosted or privacy-preserving. The app knows which hotels you
+are considering; that is treated as sensitive throughout.
+
+---
+
+## Not financial advice
+
+Parity computes estimates from rates you enter and published programme terms. Programme terms
+change, and approval of any claim is at the issuer's discretion. Nothing here is a guarantee of
+a refund or a saving.
+
+Domain rules were verified July 2026 against the sources listed in §2.9 of the spec, and every
+one of them renders on `/settings/rules` with its verified date and source link. Re-verify
+before relying on any threshold after January 2027 — anything older than 180 days is flagged in
+the UI automatically.

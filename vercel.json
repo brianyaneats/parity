@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/claim-deadline-sweep",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/bucket-expiry-sweep",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/watchlist-reshop",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/rule-staleness",
+      "schedule": "0 9 * * 1"
+    }
+  ]
+}

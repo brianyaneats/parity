@@ -1,0 +1,315 @@
+{
+  "$comment": [
+    "GROUND TRUTH — §3.8 of parity-build-spec.md, transcribed verbatim.",
+    "Per §0.2 these fixtures outrank the implementation. If the engine disagrees with a",
+    "number here, the engine is wrong. Do not edit a fixture to make a test pass; if a",
+    "fixture is genuinely wrong, stop and write the reasoning into DECISIONS.md instead.",
+    "Expected rows carry only the fields the spec published. The table test asserts",
+    "exactly those fields and never invents an expectation the spec did not state."
+  ],
+
+  "sharedContext": {
+    "nights": 3,
+    "taxRateBps": 1240,
+    "breakfastPerDayCents": 7000,
+    "propertyCreditFaceCents": 10000,
+    "realizationPct": 100,
+    "mrValueMicro": 15000,
+    "urValueMicro": 17500,
+    "foraRateBps": 700,
+    "amexBucketAvailable": true,
+    "editBucketAvailable": true,
+    "competitorBaseCents": 300000,
+    "competitorRefundable": true,
+    "competitorPublic": true,
+    "brand": "NONE"
+  },
+
+  "sharedQuoteSets": {
+    "Q": [
+      { "channel": "EDIT", "totalCents": 354000, "prepaid": true, "refundable": true },
+      { "channel": "FHR", "totalCents": 360000, "prepaid": true, "refundable": true },
+      { "channel": "DIRECT_PREPAID", "totalCents": 317000, "prepaid": true, "refundable": false },
+      { "channel": "DIRECT_FLEX", "totalCents": 350000, "prepaid": false, "refundable": true },
+      { "channel": "OTA", "totalCents": 360000, "prepaid": true, "refundable": true },
+      { "channel": "FORA", "totalCents": 350000, "prepaid": false, "refundable": true }
+    ]
+  },
+
+  "cases": [
+    {
+      "id": "TC-01",
+      "title": "golden path, both credits live, match qualifies",
+      "contextOverrides": {},
+      "quoteSet": "Q",
+      "expectedWinner": "EDIT",
+      "expectedRankedOrder": ["EDIT", "FHR", "DIRECT_PREPAID", "FORA", "DIRECT_FLEX", "OTA"],
+      "expectedRows": [
+        {
+          "channel": "EDIT",
+          "base": 314947,
+          "tax": 39053,
+          "perks": 31000,
+          "creditKept": 25000,
+          "clawback": 0,
+          "points": 43967,
+          "refund": 14947,
+          "net": 239086,
+          "pmQualifies": true,
+          "perNight": 4982
+        },
+        {
+          "channel": "FHR",
+          "base": 320285,
+          "tax": 39715,
+          "perks": 31000,
+          "creditKept": 30000,
+          "clawback": 0,
+          "points": 27000,
+          "refund": 0,
+          "net": 272000,
+          "pmQualifies": false,
+          "perNight": 6762
+        },
+        {
+          "channel": "DIRECT_PREPAID",
+          "base": 282028,
+          "tax": 34972,
+          "perks": 0,
+          "creditKept": 0,
+          "clawback": 0,
+          "points": 0,
+          "refund": 0,
+          "net": 317000,
+          "pmQualifies": false,
+          "perNight": -5991
+        },
+        {
+          "channel": "FORA",
+          "base": 311388,
+          "tax": 38612,
+          "perks": 0,
+          "creditKept": 0,
+          "clawback": 0,
+          "points": 0,
+          "refund": 0,
+          "net": 325500,
+          "pmQualifies": false,
+          "perNight": 3796
+        },
+        {
+          "channel": "DIRECT_FLEX",
+          "base": 311388,
+          "tax": 38612,
+          "perks": 0,
+          "creditKept": 0,
+          "clawback": 0,
+          "points": 0,
+          "refund": 0,
+          "net": 350000,
+          "pmQualifies": false,
+          "perNight": 3796
+        },
+        {
+          "channel": "OTA",
+          "base": 320285,
+          "tax": 39715,
+          "perks": 0,
+          "creditKept": 0,
+          "clawback": 0,
+          "points": 3600,
+          "refund": 0,
+          "net": 356400,
+          "pmQualifies": false,
+          "perNight": 6762
+        }
+      ]
+    },
+
+    {
+      "id": "TC-02",
+      "title": "both buckets exhausted",
+      "contextOverrides": { "amexBucketAvailable": false, "editBucketAvailable": false },
+      "quoteSet": "Q",
+      "expectedWinner": "EDIT",
+      "expectedRows": [
+        {
+          "channel": "EDIT",
+          "creditKept": 0,
+          "points": 47467,
+          "refund": 14947,
+          "net": 260586
+        },
+        {
+          "channel": "FHR",
+          "creditKept": 0,
+          "points": 27000,
+          "net": 302000
+        },
+        { "channel": "DIRECT_PREPAID", "net": 317000 },
+        { "channel": "FORA", "net": 325500 },
+        { "channel": "DIRECT_FLEX", "net": 350000 },
+        { "channel": "OTA", "net": 356400 }
+      ]
+    },
+
+    {
+      "id": "TC-03",
+      "title": "gap below the floor",
+      "contextOverrides": { "competitorBaseCents": 313500 },
+      "quoteSet": "Q",
+      "expectedWinner": "EDIT",
+      "expectedRows": [
+        {
+          "channel": "EDIT",
+          "pmQualifies": false,
+          "refund": 0,
+          "points": 46060,
+          "creditKept": 25000,
+          "net": 251940,
+          "perNight": 482,
+          "gap": 1447
+        }
+      ]
+    },
+
+    {
+      "id": "TC-04",
+      "title": "competing rate non-refundable",
+      "contextOverrides": { "competitorRefundable": false },
+      "quoteSet": "Q",
+      "expectedWinner": "EDIT",
+      "expectedRows": [
+        {
+          "channel": "EDIT",
+          "pmQualifies": false,
+          "refund": 0,
+          "net": 251940,
+          "gap": 14947,
+          "perNight": 4982,
+          "warnings": ["COMPETITOR_NON_REFUNDABLE"],
+          "failedConditions": ["PM8"]
+        }
+      ]
+    },
+
+    {
+      "id": "TC-05",
+      "title": "clawback and over-subsidy",
+      "contextOverrides": { "nights": 2, "competitorBaseCents": 13350 },
+      "quotes": [{ "channel": "EDIT", "totalCents": 40000, "prepaid": true, "refundable": true }],
+      "expectedWinner": "EDIT",
+      "expectedRows": [
+        {
+          "channel": "EDIT",
+          "base": 35587,
+          "tax": 4413,
+          "perks": 24000,
+          "refund": 22237,
+          "netCharge": 17763,
+          "creditKept": 17763,
+          "clawback": 7237,
+          "points": 0,
+          "net": -24000,
+          "minCashFloor": 47237,
+          "warnings": ["CLAWBACK_RISK", "OVER_SUBSIDIZED"]
+        }
+      ]
+    },
+
+    {
+      "id": "TC-06",
+      "title": "FHR has no price-match path",
+      "contextOverrides": { "competitorBaseCents": 250000 },
+      "quotes": [{ "channel": "FHR", "totalCents": 360000, "prepaid": true, "refundable": true }],
+      "expectedWinner": "FHR",
+      "expectedRows": [
+        {
+          "channel": "FHR",
+          "pmQualifies": false,
+          "refund": 0,
+          "creditKept": 30000,
+          "points": 27000,
+          "net": 272000,
+          "warnings": ["FHR_NO_PRICE_MATCH"]
+        }
+      ]
+    },
+
+    {
+      "id": "TC-07",
+      "title": "one-night Edit stay",
+      "contextOverrides": { "nights": 1, "competitorBaseCents": 90000 },
+      "quotes": [{ "channel": "EDIT", "totalCents": 110000, "prepaid": true, "refundable": true }],
+      "expectedWinner": "EDIT",
+      "expectedRows": [
+        {
+          "channel": "EDIT",
+          "base": 97865,
+          "tax": 12135,
+          "perks": 17000,
+          "creditFace": 0,
+          "refund": 7865,
+          "points": 14299,
+          "net": 70836,
+          "warnings": ["EDIT_UNDER_TWO_NIGHTS"]
+        }
+      ]
+    },
+
+    {
+      "id": "TC-08a",
+      "title": "the BRG fork — credits live",
+      "contextOverrides": { "competitorBaseCents": 194800, "brand": "HYATT" },
+      "quotes": [
+        { "channel": "EDIT", "totalCents": 236000, "prepaid": true, "refundable": true },
+        { "channel": "DIRECT_FLEX", "totalCents": 230000, "prepaid": false, "refundable": true }
+      ],
+      "expectedWinner": "EDIT",
+      "expectedRows": [{ "channel": "EDIT", "net": 137419 }],
+      "expectedBrg": {
+        "brand": "HYATT",
+        "newTotalCents": 175164,
+        "matchedBaseCents": 155840,
+        "pointsKicker": 5000
+      }
+    },
+
+    {
+      "id": "TC-08b",
+      "title": "the BRG fork — credits burned",
+      "contextOverrides": {
+        "competitorBaseCents": 194800,
+        "brand": "HYATT",
+        "amexBucketAvailable": false,
+        "editBucketAvailable": false
+      },
+      "quotes": [
+        { "channel": "EDIT", "totalCents": 236000, "prepaid": true, "refundable": true },
+        { "channel": "DIRECT_FLEX", "totalCents": 230000, "prepaid": false, "refundable": true }
+      ],
+      "expectedWinner": "EDIT",
+      "expectedRows": [{ "channel": "EDIT", "net": 158919 }],
+      "expectedBrg": {
+        "brand": "HYATT",
+        "newTotalCents": 175164,
+        "matchedBaseCents": 155840,
+        "pointsKicker": 5000
+      }
+    },
+
+    {
+      "id": "TC-09",
+      "title": "sensitivity break-even",
+      "contextOverrides": {},
+      "quoteSet": "Q",
+      "expectedWinner": "EDIT",
+      "expectedRows": [],
+      "expectedSensitivity": {
+        "$comment": "FHR overtakes EDIT only when UR falls below ≈0.44¢/point. Tolerance ±0.01¢ = ±100 micro.",
+        "urBreakEvenMicro": 4400,
+        "toleranceMicro": 100
+      }
+    }
+  ]
+}
