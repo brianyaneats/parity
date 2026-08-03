@@ -749,3 +749,70 @@ export const notificationsSentRelations = relations(notificationsSent, ({ one })
 
 export type NotificationsSentRow = typeof notificationsSent.$inferSelect;
 export type NewNotificationsSentRow = typeof notificationsSent.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// email_send_counters / email_send_daily_totals — durable send budget
+// ---------------------------------------------------------------------------
+//
+// Not part of the spec's own §4.2 DDL, same as `notifications_sent` above.
+// Added under a security-audit remediation: `POST /api/auth/magic-link` had
+// only a per-IP rate limit guarding it, which does not bound the *shared*
+// resource that actually matters — Resend's free-tier cap of 100 emails/day
+// for the whole deployment. A single caller staying within the per-IP limit
+// could still exhaust that entire daily quota targeting one known address,
+// locking every user out of sign-in for the rest of the day. These two
+// tables are the durable, cross-instance budget that closes that gap —
+// see `src/application/ports/EmailBudgetRepository.ts` for the full
+// reasoning and `src/infrastructure/persistence/repositories/
+// DrizzleEmailBudgetRepository.ts` for the atomic conditional-upsert that
+// enforces it without a read-then-write race.
+//
+// `email_send_counters` is one row per (email, UTC day): `count` is how many
+// sends that address has had today, `last_sent_at` is when the most recent
+// one happened (the cooldown check). `email_send_daily_totals` is one row
+// per UTC day, globally: `count` is every send across every recipient that
+// day. Both are plain running counters, not append-only logs — an
+// append-only table would make "how many today" an aggregate query on every
+// request instead of a single indexed row read, and would need its own
+// pruning job to stay bounded.
+//
+// House rules from §4.1 apply loosely here (this is post-spec, like
+// `notifications_sent`): no `userId` — a budget is keyed by recipient email
+// and by calendar day, not by account, since the whole point is to bound an
+// unauthenticated caller who need not be, and often is not, a user of the
+// product. `email_send_daily_totals.sendDate` is its own primary key
+// (one global row per day; no separate uuid `id` earns its keep on a table
+// with exactly one natural key), the same reasoning `user_settings.userId`
+// gets in D-072.
+
+export const emailSendCounters = pgTable(
+  'email_send_counters',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Callers are expected to pass an already-normalised (trimmed,
+    // lowercased) address — `magicLinkSchema` in
+    // `src/lib/validation/auth.ts` does exactly that with Zod's
+    // `.trim().toLowerCase()` before this ever gets called — so two
+    // requests for "A@b.com" and "a@b.com" share one row rather than
+    // silently doubling the effective per-recipient budget.
+    email: text('email').notNull(),
+    // UTC calendar day this counter belongs to — `toIsoDate(now)` from
+    // `src/domain/credit/CreditWindow.ts` defaults to UTC, matching every
+    // other "which day is this" computation in the app.
+    sendDate: date('send_date', { mode: 'string' }).notNull(),
+    count: integer('count').notNull().default(0),
+    lastSentAt: timestamp('last_sent_at', { withTimezone: true }),
+  },
+  (t) => [unique('email_send_counters_email_send_date_unique').on(t.email, t.sendDate)],
+);
+
+export const emailSendDailyTotals = pgTable('email_send_daily_totals', {
+  sendDate: date('send_date', { mode: 'string' }).primaryKey(),
+  count: integer('count').notNull().default(0),
+});
+
+export type EmailSendCounterRow = typeof emailSendCounters.$inferSelect;
+export type NewEmailSendCounterRow = typeof emailSendCounters.$inferInsert;
+
+export type EmailSendDailyTotalRow = typeof emailSendDailyTotals.$inferSelect;
+export type NewEmailSendDailyTotalRow = typeof emailSendDailyTotals.$inferInsert;

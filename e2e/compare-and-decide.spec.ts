@@ -149,15 +149,27 @@ test.describe('Compare and decide', () => {
     // row back from `GET /api/comparisons/:id` and confirm it is really
     // there, not just that the button changed its mind.
     //
-    // This still cannot run in this particular sandbox: `DATABASE_URL`
-    // (`playwright.config.ts`) has no reachable Postgres behind it —
-    // provisioning one here via `docker run postgres:16` hung indefinitely
-    // fetching the image, because Docker Hub was not reachable from this
-    // sandbox. Everything above this line runs for real on every execution
-    // of this suite regardless; only the save step, which needs a real
-    // database, is deferred. Re-run in an environment with one (e.g. CI's
-    // Postgres service container) and remove the `test.fixme()` call below —
-    // the steps are the target contract as written.
+    // This could not run in the sandbox this test was originally written in:
+    // `DATABASE_URL` (`playwright.config.ts`) had no reachable Postgres
+    // behind it there — provisioning one via `docker run postgres:16` hung
+    // indefinitely fetching the image, because Docker Hub was not reachable
+    // from that sandbox. Everything above this line runs for real on every
+    // execution of this suite regardless; only this save step needs a real
+    // database, hence the conditional guard below rather than an
+    // unconditional one — see `e2e/support/global-setup.ts`'s file header for
+    // the same pattern.
+    //
+    // Re-verified for real (2026-08-02) locally, against a disposable
+    // Postgres container with `DATABASE_URL`/`AUTH_SECRET` set — this step
+    // passes and the persisted row round-trips correctly. Not yet reflected
+    // in CI: the `AUTH_SECRET` fix below is uncommitted, so the only CI run
+    // so far (`ci.yml`'s `e2e` job, run 30767075362) predates it and is still
+    // red. Docker was never actually CI's blocker: CI's Postgres service container was
+    // already there from that job's first run; what was missing was
+    // `AUTH_SECRET` in CI's `env:` (the production server this suite runs
+    // against refuses every session without it — now fixed at the top of
+    // `ci.yml`).
+    //
     // Runs for real whenever a migrated, seeded Postgres is reachable — the
     // test runner's own `DATABASE_URL` is the signal. Skips cleanly when there
     // is none, rather than failing on a connection refused that says nothing

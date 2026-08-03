@@ -70,7 +70,15 @@ import type {
   CompetingRateRepository,
 } from '@/application/ports/CompetingRateRepository';
 import type { NewCompetingRateInput } from '@/application/ports/ComparisonRepository';
+import {
+  RECIPIENT_DAILY_EMAIL_LIMIT,
+  RECIPIENT_EMAIL_COOLDOWN_MS,
+  type EmailBudgetDecision,
+  type EmailBudgetRepository,
+} from '@/application/ports/EmailBudgetRepository';
+import type { AuthRepository, AuthUserRecord } from '@/application/ports/AuthRepository';
 import { cents } from '@/domain/shared/cents';
+import { toIsoDate } from '@/domain/credit/CreditWindow';
 
 export class InMemoryComparisonRepository implements ComparisonRepository {
   public readonly rows: ComparisonRecord[] = [];
@@ -581,5 +589,91 @@ export class InMemoryNotificationsSentRepository implements NotificationsSentRep
 
   public get rows(): readonly NotificationSentRecord[] {
     return [...this.byKey.values()];
+  }
+}
+
+/**
+ * In-memory `EmailBudgetRepository` — the fake behind
+ * `RequestMagicLinkUseCase.test.ts`'s budget-enforcement coverage.
+ *
+ * `reserveSend` computes *both* decisions (per-recipient, then global)
+ * against the current state before mutating either counter, and only
+ * commits the increments once both have passed. That reproduces the
+ * observable contract `DrizzleEmailBudgetRepository`'s transaction-plus-
+ * rollback gives in real Postgres — a blocked attempt never leaves any
+ * counter incremented — without needing an actual transaction: this class
+ * has no `await` between reading and writing its `Map`s, so within Node's
+ * single-threaded event loop it is already atomic across any number of
+ * "concurrent" callers racing via `Promise.all`, the same reasoning
+ * `InMemoryNotificationsSentRepository` above documents for its own
+ * check-then-set.
+ */
+export class InMemoryEmailBudgetRepository implements EmailBudgetRepository {
+  private readonly recipients = new Map<string, { count: number; lastSentAt: Date | null }>();
+  private readonly dailyTotals = new Map<string, number>();
+
+  public async reserveSend(email: string, now: Date, globalDailyLimit: number): Promise<EmailBudgetDecision> {
+    const day = toIsoDate(now);
+    const recipientKey = `${email}:${day}`;
+    const recipient = this.recipients.get(recipientKey) ?? { count: 0, lastSentAt: null };
+
+    const cooldownOk =
+      recipient.lastSentAt === null || now.getTime() - recipient.lastSentAt.getTime() >= RECIPIENT_EMAIL_COOLDOWN_MS;
+    if (recipient.count >= RECIPIENT_DAILY_EMAIL_LIMIT || !cooldownOk) {
+      return { allowed: false, reason: 'RECIPIENT_LIMIT' };
+    }
+
+    const globalCount = this.dailyTotals.get(day) ?? 0;
+    if (globalCount >= globalDailyLimit) {
+      return { allowed: false, reason: 'GLOBAL_LIMIT' };
+    }
+
+    this.recipients.set(recipientKey, { count: recipient.count + 1, lastSentAt: now });
+    this.dailyTotals.set(day, globalCount + 1);
+    return { allowed: true };
+  }
+
+  /** Test inspection: how many sends `email` has been charged for on `day` (`YYYY-MM-DD`, UTC). */
+  public recipientCount(email: string, day: string): number {
+    return this.recipients.get(`${email}:${day}`)?.count ?? 0;
+  }
+
+  /** Test inspection: how many sends have been charged globally on `day` (`YYYY-MM-DD`, UTC). */
+  public globalCount(day: string): number {
+    return this.dailyTotals.get(day) ?? 0;
+  }
+}
+
+/**
+ * In-memory `AuthRepository` — the fake behind
+ * `RequestMagicLinkUseCase.test.ts`. Seeded with whichever users a test
+ * wants to exist; `createVerificationToken`/`consumeVerificationToken` are
+ * a plain in-memory map keyed on `${identifier}:${token}`, matching the real
+ * `DrizzleAuthRepository`'s `(identifier, token)` composite key.
+ */
+export class InMemoryAuthRepository implements AuthRepository {
+  private readonly usersByEmail = new Map<string, AuthUserRecord>();
+  private readonly tokens = new Map<string, { expires: Date }>();
+  public readonly createdTokens: { identifier: string; token: string; expires: Date }[] = [];
+
+  constructor(seedUsers: readonly AuthUserRecord[] = []) {
+    for (const user of seedUsers) this.usersByEmail.set(user.email, user);
+  }
+
+  public async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
+    return this.usersByEmail.get(email) ?? null;
+  }
+
+  public async createVerificationToken(identifier: string, token: string, expires: Date): Promise<void> {
+    this.tokens.set(`${identifier}:${token}`, { expires });
+    this.createdTokens.push({ identifier, token, expires });
+  }
+
+  public async consumeVerificationToken(identifier: string, token: string, now: Date): Promise<boolean> {
+    const key = `${identifier}:${token}`;
+    const record = this.tokens.get(key);
+    if (!record) return false;
+    this.tokens.delete(key);
+    return record.expires.getTime() > now.getTime();
   }
 }

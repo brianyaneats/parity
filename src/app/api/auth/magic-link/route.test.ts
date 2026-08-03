@@ -53,6 +53,21 @@ vi.mock('@/infrastructure/persistence/repositories/DrizzleNotificationsSentRepos
   },
 }));
 
+// Same reasoning as the two mocks above — `DrizzleEmailBudgetRepository`
+// imports `../db` too. Always allows: this file's tests are about the
+// per-IP rate limiter and the anti-enumeration response shape, not the
+// email send budget, which has its own dedicated coverage in
+// `RequestMagicLinkUseCase.test.ts` (in-memory fake, no DB needed there
+// either) and `DrizzleEmailBudgetRepository.integration.test.ts` (real
+// Postgres, run separately per `package.json`'s `integration` script).
+vi.mock('@/infrastructure/persistence/repositories/DrizzleEmailBudgetRepository', () => ({
+  DrizzleEmailBudgetRepository: class {
+    async reserveSend() {
+      return { allowed: true };
+    }
+  },
+}));
+
 const { POST } = await import('./route');
 
 beforeEach(() => {

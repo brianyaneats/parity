@@ -112,9 +112,19 @@ test.describe('Mobile — compare and decide at 390px', () => {
     });
 
     // See compare-and-decide.spec.ts for the full explanation: `POST
-    // /api/comparisons` and "Save comparison" are both wired now, but this
-    // test run has no reachable database (Docker Hub unreachable in this
-    // sandbox). Everything above runs for real on every execution.
+    // /api/comparisons` and "Save comparison" are both wired now. This test
+    // run originally had no reachable database (Docker Hub was unreachable in
+    // the sandbox this spec was authored in); everything above this line runs
+    // for real on every execution regardless, hence the conditional guard
+    // below rather than an unconditional one.
+    //
+    // Re-verified for real (2026-08-02) locally, against a disposable
+    // Postgres container with `DATABASE_URL`/`AUTH_SECRET` set. Not yet
+    // reflected in CI: the `AUTH_SECRET` fix is uncommitted, so the only CI
+    // run so far (`ci.yml`'s `e2e` job, run 30767075362) predates it and is
+    // still red. Docker was never actually CI's blocker there — `AUTH_SECRET`
+    // missing from CI's `env:` was (now fixed at the top of `ci.yml`).
+    //
     // Runs for real whenever a migrated, seeded Postgres is reachable — the
     // test runner's own `DATABASE_URL` is the signal. Skips cleanly when there
     // is none, rather than failing on a connection refused that says nothing

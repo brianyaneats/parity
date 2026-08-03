@@ -15,6 +15,13 @@
       "when": 1785194362953,
       "tag": "0001_gigantic_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785713255362,
+      "tag": "0002_tired_callisto",
+      "breakpoints": true
     }
   ]
 }

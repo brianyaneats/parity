@@ -1,4 +1,5 @@
 import { test, expect } from './support/test';
+import { resetDemoData } from './support/reset';
 
 /**
  * §10.3 flow 3 — "Deadline expiry."
@@ -17,21 +18,41 @@ import { test, expect } from './support/test';
  * believes "now" is against the server's real responses) rather than mocking
  * time inside the app.
  *
- * FIXME — unlike the other five flows, this one does not depend on any
- * missing UI or route: `POST /api/bookings` (with its §5.2 auto-claim side
- * effect), `PATCH /api/claims/:id`, and `/claims/[id]`
+ * FIXME (why `test.fixme(!process.env.DATABASE_URL, …)` still guards this
+ * test below, and what re-enables it): unlike the other five flows, this one
+ * does not depend on any missing UI or route: `POST /api/bookings` (with its
+ * §5.2 auto-claim side effect), `PATCH /api/claims/:id`, and `/claims/[id]`
  * (`src/features/claims/ClaimKit.tsx`, which computes
  * `claim.hasPassedDeadline(nowTick)` from the claim's real `deadlineAt`
  * against the current time on a 30-second poll and disables "Mark submitted"
- * the moment that flips) all exist in `src/**` today. The sole blocker is
- * that *this test run* has no database it can reach: `DATABASE_URL` points
- * at a local Postgres (`playwright.config.ts`), and provisioning one in this
- * environment (`docker run postgres:16`, per README.md) hung indefinitely on
- * the image pull — Docker Hub was not reachable from this sandbox. That is
- * an environment limitation of *this* run, not a defect in the app or this
- * suite; `.github/workflows/ci.yml`'s Postgres service container does not
- * have this problem, and this flow should be re-verified there — it is
- * plausibly already passing.
+ * the moment that flips) all exist in `src/**` today. The guard is
+ * conditional, not unconditional, so this runs for real the moment a
+ * database is reachable — see `e2e/support/global-setup.ts`'s and
+ * `playwright.config.ts`'s file headers for the same pattern.
+ *
+ * When first written, the guard was load-bearing: `docker run postgres:16`
+ * (per README.md) hung indefinitely on the image pull in that authoring
+ * sandbox — Docker Hub was not reachable from there — so `DATABASE_URL` had
+ * nothing behind it and none of this could be verified beyond reading the
+ * source.
+ *
+ * Re-verified for real (2026-08-02) locally, against a disposable Postgres
+ * container with `DATABASE_URL`/`AUTH_SECRET` set. Every step passes:
+ * the in-window booking accepts `SUBMITTED`, the past-deadline one is
+ * refused it, and the claim kit offers no submit control once expired. Not
+ * yet reflected in CI: the fixes noted below are uncommitted, so the only CI
+ * run so far (`ci.yml`'s `e2e` job, run 30767075362) predates them and is
+ * still red. The
+ * one thing that *did* turn out to need fixing along the way was not Docker:
+ * it was `AUTH_SECRET` missing from CI's `env:` (the production server
+ * refuses every session without it — now fixed at the top of `ci.yml`) and
+ * this file lacking the `resetDemoData()` its DB-mutating siblings already
+ * had, which let a sibling spec's demo-account reset race this one's two
+ * bookings under parallel workers. Adding it below (`beforeAll`) removes that
+ * specific, previously-deterministic failure; it does not fully eliminate
+ * every cross-file reset race, since five spec files now each call
+ * `resetDemoData()` independently — see `.github/workflows/ci.yml`'s `e2e`
+ * job comment for the honest, measured version of what's left.
  *
  * One behavioral note worth preserving for whoever re-verifies this: the
  * claim kit does *not* relabel its status badge to "Expired" client-side
@@ -46,6 +67,20 @@ import { test, expect } from './support/test';
  * claim can no longer be marked SUBMITTED, only EXPIRED or NOT_PURSUED").
  */
 test.describe('Deadline expiry', () => {
+  // This flow books EDIT twice against the shared demo account (§4.1's
+  // `CSR_EDIT_H2` bucket) without depending on its exact remaining balance —
+  // but, like `claim-lifecycle.spec.ts`, it originally skipped the reset its
+  // DB-mutating siblings (`compare-and-decide.spec.ts`, `mobile-compare.
+  // spec.ts`, `clawback-guard.spec.ts`) already had. Under this suite's
+  // parallel workers (`workers: 2` in CI), a sibling's `resetDemoData()`
+  // deleting-and-reseeding the demo user mid-run raced this spec's own two
+  // `POST /api/bookings` calls and failed them on a foreign-key violation —
+  // reproduced directly, not hypothetical. Resetting here too removes that
+  // specific failure — see `.github/workflows/ci.yml`'s `e2e` job comment for
+  // why this is a real improvement rather than a complete fix of every
+  // cross-file reset race.
+  test.beforeAll(resetDemoData);
+
   test('once past its 24h deadline, a claim can no longer be marked SUBMITTED', async ({
     page,
     context,

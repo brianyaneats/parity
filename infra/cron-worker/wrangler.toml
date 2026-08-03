@@ -1,0 +1,13 @@
+name = "parity-claim-sweep-cron"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+# PARITY_BASE_URL is set here once the Vercel production URL exists, e.g.:
+# [vars]
+# PARITY_BASE_URL = "https://parity-<slug>.vercel.app"
+#
+# CRON_SECRET is a secret, never a var:
+#   npx wrangler secret put CRON_SECRET

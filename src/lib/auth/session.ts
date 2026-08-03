@@ -1,7 +1,8 @@
 import { cookies } from 'next/headers';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { createLogger } from '@/infrastructure/observability/Logger';
 import { ApiError } from '@/lib/api/errors';
+import { constantTimeEqual } from './constantTimeEqual';
 
 /**
  * Session access.
@@ -71,14 +72,6 @@ function sign(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url');
 }
 
-/** Constant-time so a mismatch can't be timed byte by byte. */
-function signaturesMatch(expected: string, actual: string): boolean {
-  const expectedBuf = Buffer.from(expected);
-  const actualBuf = Buffer.from(actual);
-  if (expectedBuf.length !== actualBuf.length) return false;
-  return timingSafeEqual(expectedBuf, actualBuf);
-}
-
 export async function getSession(): Promise<Session | null> {
   const store = await cookies();
   const raw = store.get(SESSION_COOKIE)?.value;
@@ -125,7 +118,7 @@ export function decodeSession(raw: string): Session | null {
   const [payload, signature] = parts;
   if (!payload || !signature) return null;
 
-  if (!signaturesMatch(sign(payload, secret), signature)) return null;
+  if (!constantTimeEqual(sign(payload, secret), signature)) return null;
 
   try {
     const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as unknown;

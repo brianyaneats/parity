@@ -125,18 +125,34 @@ describe('decodeSession — wrong secret', () => {
 });
 
 describe('constant-time comparison', () => {
-  it('uses crypto.timingSafeEqual to compare signatures, not string/buffer equality', () => {
+  it('delegates signature comparison to the shared constantTimeEqual helper', () => {
     // A functional test can show a mismatch is rejected, but not that the
     // rejection path is constant-time — that's a property of the code, not
     // of any one input/output pair. Reading the implementation is the
     // documented alternative (§ task spec) to a statistical timing test,
     // which would be slow and flaky in CI.
-    const source = readFileSync(new URL('./session.ts', import.meta.url), 'utf8');
-    expect(source).toMatch(/import\s*{[^}]*\btimingSafeEqual\b[^}]*}\s*from\s*'node:crypto'/);
-    expect(source).toMatch(/timingSafeEqual\(/);
+    //
+    // The comparison itself now lives in `constantTimeEqual.ts`, shared with
+    // `cron.ts`'s bearer-token check (`cron.test.ts` pins that file's own
+    // use of it) — this test just confirms `session.ts` calls the shared
+    // helper rather than rolling its own comparison again.
+    const sessionSource = readFileSync(new URL('./session.ts', import.meta.url), 'utf8');
+    expect(sessionSource).toMatch(/import\s*{\s*constantTimeEqual\s*}\s*from\s*'\.\/constantTimeEqual'/);
+    expect(sessionSource).toMatch(/constantTimeEqual\(/);
+    // The module doc comment above is still allowed to *mention*
+    // `timingSafeEqual` in prose (it explains the mechanism the shared
+    // helper implements) — what must not exist is session.ts importing or
+    // calling it directly, now that the comparison itself lives in
+    // `constantTimeEqual.ts`.
+    expect(sessionSource).not.toMatch(/import\s*{[^}]*\btimingSafeEqual\b[^}]*}\s*from\s*'node:crypto'/);
+    expect(sessionSource).not.toMatch(/timingSafeEqual\(/);
+
+    const helperSource = readFileSync(new URL('./constantTimeEqual.ts', import.meta.url), 'utf8');
+    expect(helperSource).toMatch(/import\s*{[^}]*\btimingSafeEqual\b[^}]*}\s*from\s*'node:crypto'/);
+    expect(helperSource).toMatch(/timingSafeEqual\(/);
     // The length check must happen before calling timingSafeEqual (which
     // throws on mismatched lengths) rather than being skipped.
-    expect(source).toMatch(/\.length\s*!==\s*\w+\.length/);
+    expect(helperSource).toMatch(/\.length\s*!==\s*\w+\.length/);
   });
 
   it('still rejects mismatched-length signatures without throwing', () => {

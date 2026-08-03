@@ -8,6 +8,7 @@ import {
   setCompetitorSource,
   waitForSettled,
 } from './support/compare-page';
+import { resetDemoData } from './support/reset';
 
 /**
  * §10.3 flow 2 — "Claim lifecycle."
@@ -17,37 +18,66 @@ import {
  * claim text → mark submitted → record a partial approval of $10,000 cents →
  * assert a realized savings event and a ledger update."
  *
- * FIXME — every piece of code this flow needs now exists: `CompareScreen`'s
- * "Mark as booked" is wired (`src/features/compare/useSaveComparison.ts`
- * saves the comparison, then `POST /api/bookings`, which auto-opens a claim
- * per §5.2), and `/claims`, `/claims/[id]`
- * (`src/features/claims/ClaimKit.tsx` — evidence checklist, screenshot
- * width/crop check, generated claim text with copy, and submit/outcome
- * transitions running against the real `Claim` aggregate state machine),
- * `PATCH /api/claims/:id`, `POST /api/claims/:id/evidence` and `GET
- * /api/claims/:id/packet` all exist under `src/app/api/**`. The sole blocker
- * is that *this test run* has no database it can reach: `DATABASE_URL`
- * points at a local Postgres (`playwright.config.ts`), and provisioning one
- * in this environment (`docker run postgres:16`, per README.md) hung
- * indefinitely on the image pull — Docker Hub was not reachable from this
- * sandbox. Verified directly: with the `test.fixme()` call below removed,
- * this test runs for real up to "record an Edit booking," where it fails —
- * `markAsBooked` saves the comparison first (`POST /api/comparisons`), that
- * call rejects with `ECONNREFUSED` from `postgres-js` (confirmed in the
- * server log), and `markAsBooked` correctly gives up without ever calling
- * `POST /api/bookings`, so this test's `waitForResponse` for it times out.
- * Not a missing button, missing route, or bad selector. That is an
- * environment limitation of *this* run, not a defect in the app or this
- * suite; `.github/workflows/ci.yml`'s Postgres service container does not
- * have this problem, and this flow should be re-verified there — it is
- * plausibly already passing end to end.
+ * FIXME (why `test.fixme(!process.env.DATABASE_URL, …)` still guards this
+ * test below, and what re-enables it): every piece of code this flow needs
+ * exists — `CompareScreen`'s "Mark as booked" is wired
+ * (`src/features/compare/useSaveComparison.ts` saves the comparison, then
+ * `POST /api/bookings`, which auto-opens a claim per §5.2), and `/claims`,
+ * `/claims/[id]` (`src/features/claims/ClaimKit.tsx` — evidence checklist,
+ * screenshot width/crop check, generated claim text with copy, and
+ * submit/outcome transitions running against the real `Claim` aggregate
+ * state machine), `PATCH /api/claims/:id`, `POST /api/claims/:id/evidence`
+ * and `GET /api/claims/:id/packet` all exist under `src/app/api/**`. The
+ * guard is conditional, not unconditional, precisely so this runs for real
+ * the moment a database is reachable rather than needing a manual "take the
+ * fixme out" step — see `e2e/support/global-setup.ts`'s and
+ * `playwright.config.ts`'s file headers for the same pattern.
+ *
+ * When first written, the guard was load-bearing: `docker run postgres:16`
+ * (per README.md) hung indefinitely on the image pull in that authoring
+ * sandbox — Docker Hub was not reachable from there — so `DATABASE_URL` had
+ * nothing behind it and this test could only be verified up to "record an
+ * Edit booking," where `markAsBooked`'s `POST /api/comparisons` rejected
+ * with `ECONNREFUSED`.
+ *
+ * Re-verified for real (2026-08-02) locally, against a disposable Postgres
+ * container with `DATABASE_URL`/`AUTH_SECRET` set. Every step below —
+ * booking, claim auto-creation, all ten evidence items, the screenshot-width
+ * check, copy, submit, partial approval, and the ledger — passes end to end.
+ * Not yet reflected in CI: the fixes noted below are uncommitted, so the only
+ * CI run so far (`ci.yml`'s `e2e` job, run 30767075362) predates them and is
+ * still red. Once pushed, CI (which provisions Postgres + AUTH_SECRET per
+ * push) should match the local run.
+ * The one thing that *did* turn out to need fixing along the way was not
+ * Docker: it was `AUTH_SECRET` missing from CI's `env:` (the production
+ * server refuses every session without it — now fixed at the top of
+ * `ci.yml`) and this file lacking the `resetDemoData()` reset its DB-mutating
+ * siblings already had, which let a sibling spec's demo-account reset race
+ * this one's booking under parallel workers. Adding it below (`beforeAll`)
+ * removes that specific, previously-deterministic failure; it does not fully
+ * eliminate every cross-file reset race, since five spec files now each call
+ * `resetDemoData()` independently — see `.github/workflows/ci.yml`'s `e2e`
+ * job comment for the honest, measured version of what's left.
  *
  * Selectors below are the real accessible names read directly out of
- * `ClaimKit.tsx` and `EvidenceChecklist.ts` (not guesses), so this should
- * need no rework once a database is reachable — only the `test.fixme()` call
- * needs to come out.
+ * `ClaimKit.tsx` and `EvidenceChecklist.ts` (not guesses).
  */
 test.describe('Claim lifecycle', () => {
+  // This flow books for real and burns the demo account's `CSR_EDIT_H2`
+  // credit bucket (§4.1 / `resetDemoData`'s own header) — the same shared
+  // mutable state `compare-and-decide.spec.ts`, `mobile-compare.spec.ts` and
+  // `clawback-guard.spec.ts` already reset for. This spec didn't, originally,
+  // because it was written expecting to be the only DB-touching spec able to
+  // run in its authoring sandbox (see the FIXME below) — but run for real
+  // alongside the others under this suite's parallel workers (`workers: 2` in
+  // CI — `playwright.config.ts`), a sibling spec's `resetDemoData()` can
+  // delete the demo user out from under this one's booking mid-flight and
+  // fail it on a foreign-key violation, not a product defect. Resetting here
+  // too, like its siblings, removes that specific failure — see
+  // `.github/workflows/ci.yml`'s `e2e` job comment for why this is a real
+  // improvement rather than a complete fix of every cross-file reset race.
+  test.beforeAll(resetDemoData);
+
   // This flow drives the full comparator UI, saves, books, then walks the
   // ten-item claim kit — several times the work of any other flow. The
   // default 45s budget expires mid-flow on a cold server; the steps

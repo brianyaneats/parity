@@ -39,12 +39,24 @@ function schemaTableNames(): string[] {
  * carry `user_id = NULL` and are not theirs. Auth tables hold session material,
  * not user content, and exporting a session token would be a security defect
  * rather than a courtesy.
+ *
+ * `emailSendCounters`/`emailSendDailyTotals` (added under the email-budget
+ * remediation — see `EmailBudgetRepository.ts`) are anti-abuse bookkeeping,
+ * not user content: they have no `userId` column at all — they're keyed by
+ * recipient email address and by calendar day, deliberately disconnected
+ * from any one account, since the whole point is to bound a caller who need
+ * not be a registered user in the first place. There is nothing here to
+ * scope by `userId`, and "how many magic-link sends this address has left
+ * today" is operational rate-limit state, not a record of anything the user
+ * did.
  */
 const NOT_USER_CONTENT = new Set([
   'users',
   'accounts',
   'sessions',
   'verificationTokens',
+  'emailSendCounters',
+  'emailSendDailyTotals',
 ]);
 
 describe('§12 — the export covers every user-scoped table', () => {

@@ -1,9 +1,11 @@
 name: Setup Node & pnpm
 description: >
   Installs pnpm (matching package.json's packageManager pin), sets up Node
-  20.11+ (matching package.json's engines field) with pnpm store caching, and
+  22 (matching package.json's engines field) with pnpm store caching, and
   installs dependencies with a frozen lockfile. Shared by every job in
-  ci.yml so the toolchain is defined once.
+  ci.yml so the toolchain is defined once. Node 20 reached end-of-life on
+  2026-04-30 and no longer receives security updates, so CI tracks the
+  current maintained LTS instead.
 runs:
   using: composite
   steps:
@@ -13,7 +15,7 @@ runs:
 
     - uses: actions/setup-node@v4
       with:
-        node-version: '20.11'
+        node-version: '22'
         cache: pnpm
 
     - name: Install dependencies

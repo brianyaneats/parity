@@ -20,6 +20,28 @@ concurrency:
 
 env:
   NEXT_TELEMETRY_DISABLED: '1'
+  # `axe`, `e2e`, `visual-regression` and `lighthouse` all launch
+  # `playwright.config.ts`'s `webServer` — `pnpm build && pnpm start`, a real
+  # *production* `next start`. `src/lib/auth/session.ts` deliberately refuses
+  # to issue or accept ANY session in production without `AUTH_SECRET` set
+  # (the fix for the forgeable-session defect — see that file's header), so
+  # every request `e2e/support/test.ts`'s signed-in `parity-session` cookie
+  # is meant to authenticate gets a flat 401 without this. Fixed, non-secret
+  # CI-only value — it only ever signs the ephemeral demo-account cookie for
+  # these throwaway per-job Postgres service containers, never a real user,
+  # so it does not need to be a repository secret.
+  #
+  # This was not a hypothetical: the first real run of this workflow (2026-
+  # 08-02, run 30767075362) went red on `e2e`, `visual-regression` and
+  # `lighthouse` with exactly this cause — server logs showed "AUTH_SECRET is
+  # not set in production. Refusing to issue or accept sessions until it is
+  # configured." on every DB-touching request. Each of those jobs already had
+  # a working, migrated, seeded Postgres service container at that point;
+  # Docker/Postgres reachability was never actually the CI blocker, only the
+  # blocker in the *local sandbox* several `e2e/*.spec.ts` file headers
+  # describe (a different environment entirely — see those files and the
+  # `e2e` job below for what was verified where).
+  AUTH_SECRET: 'ci-e2e-fixed-value-not-a-real-secret-see-.env.example'
 
 jobs:
   # ---------------------------------------------------------------- every PR
@@ -166,12 +188,53 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm db:migrate && pnpm db:seed
       - run: pnpm exec playwright install --with-deps chromium
-      # `claim-lifecycle` and `deadline-expiry` were left `test.fixme()` by
-      # the agent that wrote them, for lack of a database reachable *in that
-      # sandbox* (Docker Hub was unreachable there) — not for a code or route
-      # that's missing. With a real Postgres here, both are worth attempting
-      # for real; `--reporter=list` still reports `fixme` distinctly from a
-      # pass, so this does not silently mask either one still being blocked.
+      # Four specs in this list carry a `test.fixme(!process.env.DATABASE_URL,
+      # …)` guard, not an unconditional one: `claim-lifecycle.spec.ts` and
+      # `deadline-expiry.spec.ts` in full, plus the final "save" step of
+      # `compare-and-decide.spec.ts` and `mobile-compare.spec.ts`. All four
+      # were written in a sandbox where `docker run postgres:16` hung
+      # indefinitely — Docker Hub was unreachable there — so the agent that
+      # wrote them could not verify the DB-touching portion for real and left
+      # it skipping cleanly instead of failing on a connection refused that
+      # says nothing about the product (see each file's header). That is an
+      # environment limitation of that sandbox, not a defect this job
+      # inherits: `DATABASE_URL` above is genuinely reachable here, so the
+      # guard evaluates false and all four run for real, not skipped —
+      # `--reporter=list` still reports `fixme` distinctly from a pass, so a
+      # still-blocked one (no `DATABASE_URL`) would not be silently masked as
+      # green either way.
+      #
+      # Verified for real (2026-08-02) locally against a disposable Postgres:
+      # every one of the four passes. Not yet reflected here — these fixes are
+      # uncommitted, so the only run so far (30767075362) predates them and is
+      # red. Two prerequisites had to be true first, and now are:
+      # `AUTH_SECRET` at the top of this file (its absence, not Docker, was
+      # this job's actual first red run), and `claim-lifecycle.spec.ts` /
+      # `deadline-expiry.spec.ts` each calling `test.beforeAll(resetDemoData)`
+      # — like `compare-and-decide.spec.ts`, `mobile-compare.spec.ts` and
+      # `clawback-guard.spec.ts` already did — so a parallel worker's booking
+      # in one file no longer reliably loses a race against another file's
+      # delete-and-reseed of the same demo account (`e2e/support/reset.ts`).
+      #
+      # That fix is a real improvement, not a complete one, and it is worth
+      # being honest about the difference: before it, this job's own
+      # `workers: 2` reproduced the foreign-key-violation race on *every*
+      # local run, `retries: 2` included. After it, five separate spec files
+      # (the three above plus these two) each still call
+      # `test.beforeAll(resetDemoData)` independently, and two independent
+      # deletes-and-reseeds of the *same* demo account can still collide with
+      # each other under `workers: 2` — observed directly, more than once, as
+      # either the same foreign-key violation or `run-seed.ts` throwing
+      # `duplicate key value violates unique constraint "users_pkey"`. Every
+      # repeated local run since the fix has still gone fully green, but only
+      # because the first retry clears whichever one or two specs lost that
+      # particular race — i.e. `retries: 2` above is load-bearing here, not a
+      # backstop for hypothetical infrastructure blips. The complete fix would
+      # centralize the reset behind one shared fixture instead of five
+      # independent per-file ones (e.g. a single `test.beforeAll` in this
+      # job's own spec list, or a lock around `resetDemoData()`) — real,
+      # scoped, and deliberately left as follow-up rather than folded into
+      # this pass.
       - run: >-
           pnpm exec playwright test
           e2e/compare-and-decide.spec.ts

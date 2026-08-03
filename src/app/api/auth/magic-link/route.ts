@@ -3,6 +3,8 @@ import { magicLinkSchema } from '@/lib/validation/auth';
 import { dependencies, executionContext } from '@/application/runtime';
 import { createNotifier } from '@/infrastructure/notifications/createNotifier';
 import { DrizzleAuthRepository } from '@/infrastructure/persistence/repositories/DrizzleAuthRepository';
+import { DrizzleEmailBudgetRepository } from '@/infrastructure/persistence/repositories/DrizzleEmailBudgetRepository';
+import { DEFAULT_GLOBAL_DAILY_EMAIL_LIMIT } from '@/application/ports/EmailBudgetRepository';
 import { RequestMagicLinkUseCase } from '@/application/usecases/RequestMagicLinkUseCase';
 
 /**
@@ -16,16 +18,35 @@ import { RequestMagicLinkUseCase } from '@/application/usecases/RequestMagicLink
  * exact path with `{ email }`.
  */
 const authRepository = new DrizzleAuthRepository();
+const emailBudgetRepository = new DrizzleEmailBudgetRepository();
+
+/**
+ * `EMAIL_DAILY_BUDGET` overrides `DEFAULT_GLOBAL_DAILY_EMAIL_LIMIT` (see
+ * `EmailBudgetRepository.ts`) — unset, non-numeric, zero, or negative all
+ * fall back to the documented default rather than disabling the budget.
+ */
+function resolveGlobalDailyLimit(): number {
+  const raw = process.env.EMAIL_DAILY_BUDGET;
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_GLOBAL_DAILY_EMAIL_LIMIT;
+}
 
 export const POST = route(
   async ({ request, logger, requestId }) => {
     const payload = magicLinkSchema.parse(await readJson(request));
     const notifier = createNotifier(logger);
 
-    const useCase = new RequestMagicLinkUseCase(dependencies(logger), authRepository, notifier);
+    const useCase = new RequestMagicLinkUseCase(
+      dependencies(logger),
+      authRepository,
+      notifier,
+      emailBudgetRepository,
+      resolveGlobalDailyLimit(),
+    );
     await useCase.execute(payload, executionContext('anonymous', requestId));
 
-    // §5.2: identical response whether or not the account exists.
+    // §5.2: identical response whether or not the account exists, whether or
+    // not the send budget allowed a real send.
     return { ok: true };
   },
   { name: 'POST /api/auth/magic-link' },

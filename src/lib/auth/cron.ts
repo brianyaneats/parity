@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { ApiError } from '@/lib/api/errors';
+import { constantTimeEqual } from './constantTimeEqual';
 
 /**
  * Cron authentication — §5.1 ("auth on every route except `/api/health`") and
@@ -10,6 +11,14 @@ import { ApiError } from '@/lib/api/errors';
  * authentication boundary for a system-to-system call. Vercel Cron sends
  * `Authorization: Bearer ${CRON_SECRET}` automatically when the env var is
  * set; this just checks that it matches.
+ *
+ * The comparison uses the same `constantTimeEqual` helper `session.ts` uses
+ * for the session-cookie signature, rather than `!==` — `CRON_SECRET` is a
+ * bearer credential exactly like that signature, and a security review that
+ * expects a timing-safe compare for one secret and accepts a leaky one for
+ * another is a gap waiting to be found, even though this endpoint's
+ * exploitability is low (the four cron routes are the only callers, and the
+ * secret is high-entropy).
  */
 export function requireCronSecret(request: NextRequest): void {
   const configured = process.env.CRON_SECRET;
@@ -23,7 +32,7 @@ export function requireCronSecret(request: NextRequest): void {
   const header = request.headers.get('authorization') ?? '';
   const expected = `Bearer ${configured}`;
 
-  if (header !== expected) {
+  if (!constantTimeEqual(expected, header)) {
     throw ApiError.unauthorized();
   }
 }

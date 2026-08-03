@@ -49,6 +49,24 @@ function renderKit(data: ClaimKitData) {
   );
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * `ClaimKit` has no injectable clock — `pastDeadline` is gated off a real
+ * `new Date()` read at mount (see `ClaimKit.tsx`'s `nowTick` state), unlike
+ * `ClaimQueue`, which takes an explicit `now` prop for exactly this reason.
+ * A fixture with a hardcoded absolute `deadlineAt` therefore has a shelf
+ * life: `2026-07-28T12:00:00Z` was already in the past by the time this
+ * suite ran, which made the component correctly (and misleadingly) report
+ * the claim as expired. Deriving `bookedAt`/`deadlineAt` from the real
+ * "now" at test time — still exactly 24h apart, per §7.4's "deadline_at = T
+ * + 24h" rule — keeps "still inside its window" true no matter when the
+ * suite runs.
+ */
+function iso(msFromNow: number): string {
+  return new Date(Date.now() + msFromNow).toISOString();
+}
+
 function baseData(overrides: Partial<ClaimKitData> = {}): ClaimKitData {
   return {
     id: 'claim-1',
@@ -56,7 +74,7 @@ function baseData(overrides: Partial<ClaimKitData> = {}): ClaimKitData {
     bookingId: 'booking-1',
     kind: 'CHASE_PM',
     status: 'ELIGIBLE',
-    deadlineAt: '2026-07-28T12:00:00Z',
+    deadlineAt: iso(12 * HOUR_MS),
     claimedGapCents: 14_947,
     awardedCents: null,
     submittedAt: null,
@@ -76,7 +94,7 @@ function baseData(overrides: Partial<ClaimKitData> = {}): ClaimKitData {
     currency: 'USD',
     cancellationPolicy: 'Fully refundable until 3 days before check-in',
     bookingChannelLabel: 'Chase The Edit',
-    bookedAt: '2026-07-27T12:00:00Z',
+    bookedAt: iso(-12 * HOUR_MS),
     ownTotalCents: 354_000,
     ownBaseCents: 314_947,
 
