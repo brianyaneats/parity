@@ -784,3 +784,17 @@ worker slot up front so the specs that never reset (`theme-no-flash`, `fhr-asymm
 safe on whichever slot they land on. The advisory lock stays, now for its own narrower
 reason: the seed also upserts the ~45 *global* properties every worker shares.
 Measured: 1 flaky of 51 before, 51/51 clean twice after, at `workers: 2`.
+
+### D-163 — `getByText` is a substring match, and that made one assertion a coin flip
+`claim-lifecycle`'s "mark submitted" step asserted `getByText('Submitted')`. Playwright
+matches text case-insensitively *as a substring* unless told otherwise, so that locator also
+matched the success toast's title, "Marked **submitted**" — two elements, a strict-mode
+violation. It only failed sometimes because the toast auto-dismisses: whether the assertion
+saw one element or two depended on how fast the run got there. Diagnosed only after a run
+where the per-worker fixture fix (D-162) had already removed the *other*, unrelated cause,
+which is what made this one legible instead of noise.
+**Chosen:** `{ exact: true }`, which matches the status badge's label and nothing else. The
+lesson generalises — a bare `getByText` string is a substring predicate, not an equality one,
+and every assertion in this suite that names a short common word needs `exact` or a role
+scope. The suite's other `getByText` calls all name long distinctive sentences and were left
+alone rather than churned speculatively.

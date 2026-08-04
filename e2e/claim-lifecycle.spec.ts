@@ -195,7 +195,13 @@ test.describe('Claim lifecycle', () => {
 
     await test.step('mark submitted', async () => {
       await page.getByRole('button', { name: 'Mark submitted' }).click();
-      await expect(page.getByText('Submitted')).toBeVisible();
+      // `exact: true` matters here. Playwright's text matching is
+      // case-insensitive *substring* by default, so a bare 'Submitted' also
+      // matched the success toast's "Marked submitted" — two elements, a
+      // strict-mode violation, and an intermittent one at that, since the
+      // toast auto-dismisses and the race decided whether it was still on
+      // screen. The status badge renders the label exactly.
+      await expect(page.getByText('Submitted', { exact: true })).toBeVisible();
     });
 
     await test.step('record a partial approval of 10000 cents ($100.00)', async () => {
