@@ -664,6 +664,14 @@ export class InMemoryAuthRepository implements AuthRepository {
     return this.usersByEmail.get(email) ?? null;
   }
 
+  public async findOrCreateUserByEmail(email: string): Promise<AuthUserRecord> {
+    const existing = this.usersByEmail.get(email);
+    if (existing) return existing;
+    const created: AuthUserRecord = { id: randomUUID(), email };
+    this.usersByEmail.set(email, created);
+    return created;
+  }
+
   public async createVerificationToken(identifier: string, token: string, expires: Date): Promise<void> {
     this.tokens.set(`${identifier}:${token}`, { expires });
     this.createdTokens.push({ identifier, token, expires });

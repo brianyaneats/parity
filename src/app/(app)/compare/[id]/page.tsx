@@ -1,4 +1,5 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { getSession } from '@/lib/auth/session';
 import { SavedComparison } from '@/features/compare/SavedComparison';
 import { ENGINE_VERSION } from '@/domain/engine/version';
 import { EmptyState } from '@/components/ui';
@@ -17,8 +18,11 @@ export default async function SavedComparisonPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await getSession();
+  if (!session) redirect('/login');
+
   const { id } = await params;
-  const comparison = await loadComparison(id);
+  const comparison = await loadComparison(id, session.userId);
 
   if (comparison === 'unavailable') {
     return (
@@ -38,12 +42,12 @@ type LoadResult = Omit<
   'currentEngineVersion'
 > | null | 'unavailable';
 
-async function loadComparison(id: string): Promise<LoadResult> {
+async function loadComparison(id: string, userId: string): Promise<LoadResult> {
   try {
     const { findComparisonById } = await import(
       '@/infrastructure/persistence/queries/comparisons'
     );
-    return await findComparisonById(id);
+    return await findComparisonById(id, userId);
   } catch {
     // Distinguished from "not found" deliberately: a missing database is a
     // setup problem the user can fix, and a 404 would send them looking for the

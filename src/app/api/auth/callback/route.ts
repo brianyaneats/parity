@@ -4,7 +4,7 @@ import { createLogger } from '@/infrastructure/observability/Logger';
 import { dependencies, executionContext } from '@/application/runtime';
 import { DrizzleAuthRepository } from '@/infrastructure/persistence/repositories/DrizzleAuthRepository';
 import { VerifyMagicLinkUseCase } from '@/application/usecases/VerifyMagicLinkUseCase';
-import { encodeSession, SESSION_COOKIE } from '@/lib/auth/session';
+import { encodeSession, SESSION_COOKIE, SESSION_TTL_SECONDS } from '@/lib/auth/session';
 import { ApiError } from '@/lib/api/errors';
 
 /**
@@ -53,7 +53,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 60 * 60 * 24 * 30,
+        // Matches the signed `exp` claim inside the payload — the claim is
+        // what is actually enforced; this is the browser-side echo of it.
+        maxAge: SESSION_TTL_SECONDS,
       },
     );
     return response;

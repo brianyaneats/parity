@@ -19,14 +19,15 @@ import type { PropertyOption } from '@/features/compare/CompareScreen';
  * yet exist when the factory runs.
  */
 
-const { saveMock } = vi.hoisted(() => ({ saveMock: vi.fn() }));
+const { saveMock, pushMock } = vi.hoisted(() => ({ saveMock: vi.fn(), pushMock: vi.fn() }));
 
 vi.mock('../actions', () => ({ savePropertyOverride: saveMock }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: pushMock }) }));
 
 afterEach(() => {
   cleanup();
   saveMock.mockReset();
+  pushMock.mockReset();
 });
 
 const properties: readonly PropertyOption[] = [
@@ -86,6 +87,23 @@ describe('<PropertiesScreen />', () => {
     await user.type(screen.getByLabelText('Search properties'), 'nonexistent hotel');
 
     expect(screen.getByText('No properties match your search.')).toBeInTheDocument();
+  });
+
+  it('renders a truly-empty state with an action back to /compare when there are no properties at all', async () => {
+    const user = userEvent.setup();
+    render(
+      <ToastProvider>
+        <PropertiesScreen properties={[]} signedIn />
+      </ToastProvider>,
+    );
+
+    expect(screen.getByText(/no properties saved/i)).toBeInTheDocument();
+    // The search box only makes sense once there is something to search.
+    expect(screen.queryByLabelText('Search properties')).not.toBeInTheDocument();
+
+    const action = screen.getByRole('button', { name: 'Compare a stay' });
+    await user.click(action);
+    expect(pushMock).toHaveBeenCalledWith('/compare');
   });
 
   it('opens the inline editor pre-filled with the property’s current values and saves an override', async () => {

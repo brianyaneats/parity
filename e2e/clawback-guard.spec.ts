@@ -34,7 +34,7 @@ import { resetDemoData } from './support/reset';
 test.describe('Clawback guard', () => {
   // Bookings consume credit buckets for real now, so an earlier spec can
   // change the figures this one asserts. Reset rather than depend on order.
-  test.beforeAll(resetDemoData);
+  test.beforeAll(() => resetDemoData());
 
   test('TC-05: minCashFloor is $472.37 and both warnings render', async ({ page }) => {
     const tc05 = fixtureCase('TC-05');

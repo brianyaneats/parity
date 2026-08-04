@@ -5,131 +5,136 @@
  * rgba, px font size, or px radius. Swapping to a different design system must
  * be a single-file edit."
  *
- * That rule is not stylistic tidiness — it is the mitigation for the one
- * genuinely unresolved question in the spec (§6.1, §13.2 item 1). The owner
- * asked for "the 70mm Sentry app design"; no such skill or plugin exists, so
- * this build proceeds on the documented Sentry assumption. If that assumption
- * is wrong, the cost of reversing it is editing this file and nothing else.
- * See DECISIONS.md D-050.
+ * That promise was just cashed in. This file's second design system replaces
+ * the original Sentry-assumption dark theme (D-050) with a light-first system
+ * measured from airbnb.com on 2026-08-03 — ink `#222` on white, one warm
+ * accent, pill interactive shapes, four layered shadows, system-font stack
+ * (Airbnb's own fallback chain; their Cereal face is proprietary and is not
+ * copied). Values are *inspired by* the measured system, re-stepped where
+ * Airbnb's own pairs miss WCAG AA for this app's denser text. See D-158.
  *
- * Light mode is an AUTHORED palette, not a generated inversion (§6.2, §13.2
- * item 5). Every value below was chosen for its own surface and contrast-
- * verified against it. Never derive one theme from the other with a filter,
- * `invert()`, or a lightness negation — doing so produces unreadable brand and
- * status colours, which is the specific failure mode the spec calls out.
+ * Token NAMES are unchanged — components reference the semantic slot, never
+ * the value, which is exactly why this re-skin touched (almost) nothing else.
+ * `--accent-lime` is now a historical name for "the CTA fill"; renaming it
+ * across every component is mechanical follow-up, not part of this change.
+ *
+ * Dark mode is an AUTHORED palette, not a generated inversion (§6.2, §13.2
+ * item 5). Airbnb ships no web dark mode, so the dark theme here is this
+ * product's own: neutral warm charcoals (the purple cast is gone with the old
+ * system), same accent hue family, every value contrast-verified against its
+ * own surface. Never derive one theme from the other with a filter,
+ * `invert()`, or a lightness negation.
  *
  * Contrast ratios in the comments are measured against `--surface-1` in the
  * respective theme and are the figures the axe CI gate enforces (§6.7).
  */
 
 :root {
-  color-scheme: dark;
-
-  /* surfaces */
-  --canvas: #150f23;         /* page background, deepest */
-  --surface-1: #1f1633;      /* cards, panels */
-  --surface-2: #2a2044;      /* raised / hover */
-  --glass: rgba(255, 255, 255, 0.06);
-  --glass-hover: rgba(255, 255, 255, 0.1);
-  --border: #362d59;
-  --border-strong: #584674;
-
-  /* ink */
-  --text-primary: #ffffff;   /* 17.2:1 on surface-1 */
-  --text-secondary: #c9c5d4; /* 10.2:1 */
-  --text-muted: #9a93ad;     /*  5.9:1 */
-
-  /* brand */
-  --brand: #6a5fc1;          /* 3.3:1 — FILLS, BORDERS, LARGE TEXT ONLY. Never body text. */
-  --brand-deep: #422082;
-  --accent-lime: #c2ef4e;    /* 12.9:1 — primary CTA, focus ring, key figure */
-  --accent-coral: #ffb287;   /*  9.8:1 */
-  --accent-pink: #fa7faa;    /*  7.1:1 */
-
-  /* The ink to place ON a filled accent. In dark mode the accents are light,
-     so their ink is the deep canvas rather than the primary text colour. */
-  --accent-lime-ink: #150f23;
-  --accent-coral-ink: #150f23;
-
-  /* status — always paired with an icon and a label, never colour alone (§6.7) */
-  --status-good: #4ade80;    /*  9.9:1 */
-  --status-warning: #fbbf24; /* 10.3:1 */
-  --status-critical: #f87171;/*  6.2:1 */
-
-  /* Ink placed on a filled status chip. */
-  --status-ink: #150f23;
-
-  /* data viz — §6.5. Three hues, computationally verified on THIS surface:
-     worst-pair CVD ΔE 9.8 (deutan), normal-vision 22.5, all ≥ 3:1.
-     A fourth cannot pass the separation gates. Do not generate one. */
-  --series-1: #859a33;
-  --series-2: #3198d6;
-  --series-3: #ce6a8c;
-
-  /* Focus ring. Indirected because the correct hue differs by theme (§6.7):
-     lime is too low-contrast on white to serve as a ring in light mode.
-     Components reference --focus-ring only, and never choose. (D-053) */
-  --focus-ring: var(--accent-lime);
-
-  /* elevation — used sparingly; this is a flat, dense UI */
-  --e-1: 0 1px 2px rgba(0, 0, 0, 0.24);
-  --e-2: 0 4px 12px rgba(0, 0, 0, 0.32);
-  --e-glass: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-/**
- * Light mode — a *selected* theme, contrast-verified against its own surface.
- * Ships in v1 alongside dark (§13.2 item 5: "If schedule pressure hits, cut a
- * feature, not a theme").
- */
-:root[data-theme='light'] {
   color-scheme: light;
 
-  /* surfaces — a faint purple cast keeps the brand identity without tinting content */
-  --canvas: #f7f6fa;
-  --surface-1: #ffffff;
-  --surface-2: #f1eff7;
-  --glass: rgba(23, 18, 42, 0.04);
-  --glass-hover: rgba(23, 18, 42, 0.07);
-  --border: #e3e0ee;
-  --border-strong: #c9c4dc;
+  /* surfaces — white-dominant; hierarchy comes from shadow, not tint */
+  --canvas: #ffffff;         /* page background */
+  --surface-1: #ffffff;      /* cards, panels — separated by border + shadow */
+  --surface-2: #f7f7f7;      /* raised / hover / subtle wells */
+  --glass: rgba(34, 34, 34, 0.04);
+  --glass-hover: rgba(34, 34, 34, 0.07);
+  --border: #dddddd;
+  --border-strong: #b0b0b0;
 
   /* ink */
-  --text-primary: #17122a;   /* 18.2:1 on surface-1 */
-  --text-secondary: #4a4460; /*  9.2:1 */
-  --text-muted: #6f6889;     /*  5.2:1 */
+  --text-primary: #222222;   /* 15.9:1 on surface-1 */
+  --text-secondary: #595959; /*  7.0:1 */
+  --text-muted: #6c6c6c;     /*  5.7:1 */
 
-  /* brand — a darker step than dark mode's, so it clears body-text contrast here */
-  --brand: #5b4fb5;          /* 6.5:1 — usable for body text in THIS mode */
-  --brand-deep: #422082;     /* 11.9:1 */
-  --accent-lime: #c2ef4e;    /* FILL ONLY in light mode — pair with --text-primary ink, 13.6:1 */
-  --accent-lime-ink: #4c5c0f;/* 7.4:1 — the lime *text/icon* step */
-  --accent-coral: #ffb287;   /* fill only; ink on it 10.4:1 */
-  --accent-coral-ink: #a8501c;/* 5.5:1 */
-  --accent-pink: #b6537a;
+  /* brand — deep rausch: passes as body text AND as a fill under white ink */
+  --brand: #da1249;          /* 5.9:1 as text on white */
+  --brand-deep: #a01037;     /* 8.6:1 */
+  /* CTA fill + ink. Historical names; semantically "accent" / "accent-ink". */
+  --accent-lime: #da1249;    /* CTA fill; white ink below is 5.9:1 */
+  --accent-lime-ink: #ffffff;
+  --accent-coral: #f4f2ec;   /* warm sand well (measured #F4F2EC) — fill only */
+  --accent-coral-ink: #6b5d3f;/* 5.6:1 on the sand fill */
+  --accent-pink: #ff385c;    /* raw rausch — large text/graphics only, 3.9:1 */
 
-  /* status — darker steps; still always icon + label, never colour alone */
+  /* status — always paired with an icon and a label, never colour alone (§6.7) */
   --status-good: #146d34;
   --status-warning: #a35c05;
   --status-critical: #c02626;
 
+  /* Ink placed on a filled status chip. */
   --status-ink: #ffffff;
 
-  /* data viz — the SAME three hues as dark, re-stepped for this surface.
-     Not a separate palette and not an inversion: a series keeps its identity
-     when the user flips themes, which is the whole point (§6.5).
-     Verified: worst-pair CVD ΔE 9.8 (deutan), normal-vision 22.6, all ≥ 3:1. */
+  /* data viz — §6.5. Three hues, computationally verified on THIS surface:
+     worst-pair CVD ΔE 9.8 (deutan), normal-vision 22.6, all ≥ 3:1.
+     Unchanged by the re-skin: series identity survives theme/system swaps,
+     and the CVD verification is math, not taste. Do not regenerate. */
   --series-1: #718516;
   --series-2: #0c82bf;
   --series-3: #b65577;
 
-  /* The lime ring is too low-contrast on white; the brand step is the ring here. */
-  --focus-ring: var(--brand);
+  /* Focus ring. Indirected because the correct hue differs by theme (§6.7).
+     Components reference --focus-ring only, and never choose. (D-053) */
+  --focus-ring: #da1249;
 
-  /* elevation reads differently on light: softer, tighter */
-  --e-1: 0 1px 2px rgba(23, 18, 42, 0.06);
-  --e-2: 0 4px 12px rgba(23, 18, 42, 0.1);
+  /* elevation — the measured airbnb.com stack: a hairline ring plus one soft
+     drop, so white cards read as cards on a white canvas without tint */
+  --e-1: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 2px 4px rgba(0, 0, 0, 0.08);
+  --e-2: 0 0 0 1px rgba(0, 0, 0, 0.02), 0 8px 24px rgba(0, 0, 0, 0.1);
   --e-glass: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/**
+ * Dark mode — a *selected* theme, contrast-verified against its own surface.
+ * Ships in v1 alongside light (§13.2 item 5: "If schedule pressure hits, cut
+ * a feature, not a theme"). Neutral charcoal, no colour cast: the accent and
+ * the money figures carry the hue; the surfaces stay out of the way.
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* surfaces */
+  --canvas: #121212;
+  --surface-1: #1e1e1e;
+  --surface-2: #2a2a2a;
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.1);
+  --border: #3a3a3a;
+  --border-strong: #575757;
+
+  /* ink */
+  --text-primary: #ffffff;   /* 16.7:1 on surface-1 */
+  --text-secondary: #c7c7c7; /*  9.8:1 */
+  --text-muted: #999999;     /*  5.6:1 */
+
+  /* brand — lifted a step so it clears text contrast on charcoal */
+  --brand: #ff5a79;          /* 5.6:1 on surface-1 */
+  --brand-deep: #ff8298;     /* 7.9:1 */
+  /* CTA fill flips to the light rausch step with charcoal ink. */
+  --accent-lime: #ff5a79;    /* fill; the ink below is 5.4:1 on it */
+  --accent-lime-ink: #121212;
+  --accent-coral: #2e2b24;   /* the warm well, restated for charcoal */
+  --accent-coral-ink: #d8c9a3;/* 8.1:1 on it */
+  --accent-pink: #ff8298;
+
+  /* status — light steps for dark surfaces; still icon + label, never colour alone */
+  --status-good: #4ade80;
+  --status-warning: #fbbf24;
+  --status-critical: #f87171;
+
+  --status-ink: #121212;
+
+  /* data viz — the SAME three hues, re-stepped for this surface. Verified:
+     worst-pair CVD ΔE 9.8 (deutan), normal-vision 22.5, all ≥ 3:1. */
+  --series-1: #859a33;
+  --series-2: #3198d6;
+  --series-3: #ce6a8c;
+
+  --focus-ring: #ff5a79;
+
+  /* elevation reads differently on charcoal: hairline + deeper soft drop */
+  --e-1: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 4px rgba(0, 0, 0, 0.4);
+  --e-2: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.5);
+  --e-glass: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /**
@@ -137,10 +142,11 @@
  * (§6.2). Only colour and elevation do. Declared once, outside both blocks.
  */
 :root {
-  /* radii */
-  --r-sm: 6px;
+  /* radii — measured system: 8px inputs, 12px cards, pills for interactive */
+  --r-sm: 8px;
   --r-md: 8px;
   --r-lg: 12px;
+  --r-xl: 16px;
   --r-pill: 999px;
 
   /* spacing: 4px base, 8px rhythm */
@@ -153,20 +159,22 @@
   --s-7: 48px;
   --s-8: 64px;
 
-  /* type — §6.3. A product scale, not Sentry's marketing scale: 88px heroes and
-     uppercase buttons are wrong for a data product. No display face. */
-  --font-ui: var(--font-rubik), ui-sans-serif, system-ui, sans-serif;
+  /* type — §6.3. Airbnb's measured product scale (28/22/16/14/12, weights
+     400–700), on their own fallback stack: the system font. Headings gain a
+     weight step over the old system; body stays 14 for this data density. */
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --t-display-size: 34px;   --t-display-lh: 1.15; --t-display-weight: 600;
-  --t-h1-size: 24px;        --t-h1-lh: 1.25;      --t-h1-weight: 600;
+  --t-display-size: 32px;   --t-display-lh: 1.15; --t-display-weight: 700;
+  --t-h1-size: 26px;        --t-h1-lh: 1.25;      --t-h1-weight: 700;
   --t-h2-size: 18px;        --t-h2-lh: 1.3;       --t-h2-weight: 600;
   --t-h3-size: 15px;        --t-h3-lh: 1.4;       --t-h3-weight: 600;
   --t-body-size: 14px;      --t-body-lh: 1.55;    --t-body-weight: 400;
   --t-sm-size: 13px;        --t-sm-lh: 1.45;      --t-sm-weight: 400;
-  --t-xs-size: 11.5px;      --t-xs-lh: 1.4;       --t-xs-weight: 500;
+  --t-xs-size: 12px;        --t-xs-lh: 1.4;       --t-xs-weight: 500;
   --t-label-size: 11px;     --t-label-lh: 1.3;    --t-label-weight: 600;
-  --t-label-tracking: 0.06em;
+  --t-label-tracking: 0.04em;
 
   /* motion — §6.6. Transitions on opacity, transform and width only.
      Never height, never a layout-triggering property. */

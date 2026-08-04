@@ -35,8 +35,9 @@ async function globalSetup(): Promise<void> {
     });
 
   run(['tsx', 'src/infrastructure/persistence/migrate.ts']);
-  run(['tsx', 'e2e/support/reset-demo-data.ts']);
-  run(['tsx', 'src/infrastructure/persistence/seed/run-seed.ts']);
+  // One serialized delete+seed under the same advisory lock the per-spec
+  // resets take (reset-and-seed.ts) — global setup is just the first resetter.
+  run(['tsx', 'e2e/support/reset-and-seed.ts']);
 }
 
 export default globalSetup;

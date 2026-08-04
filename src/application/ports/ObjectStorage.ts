@@ -17,6 +17,15 @@ export interface SignedUploadUrl {
 export interface CreateSignedUploadUrlParams {
   readonly keyPrefix: string;
   readonly contentType: string;
+  /**
+   * The uploader — embedded in the signed URL (and covered by its signature,
+   * so it cannot be swapped for a different user's id after the fact) rather
+   * than read from whichever session happens to perform the eventual `PUT`.
+   * The blob's owner then always matches the claim's owner even if the `PUT`
+   * itself is replayed from a different browser/session than the one that
+   * requested the URL — see `evidence_blobs` in `schema.ts`.
+   */
+  readonly userId: string;
   readonly expiresInSeconds?: number;
 }
 

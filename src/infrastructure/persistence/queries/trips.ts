@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { bookings, comparisons, savingsEvents, trips } from '../schema';
 import type { TripDetailView, TripListItemView } from '@/features/trips/trips-types';
@@ -13,13 +13,18 @@ import type { TripDetailView, TripListItemView } from '@/features/trips/trips-ty
  * `IN (...)` queries rather than one combined join, which keeps each step
  * legible and keeps the query count constant regardless of how many trips or
  * comparisons exist (no N+1 per trip).
+ *
+ * `userId` is required, not optional. An earlier version took `userId?` and
+ * fell back to an unfiltered read, which meant a page that forgot to resolve
+ * the session served every user's trips to anyone — D-070's compensating
+ * control for RLS being off only works if the filter cannot be skipped.
  */
 
-export async function listTrips(userId?: string): Promise<TripListItemView[]> {
+export async function listTrips(userId: string): Promise<TripListItemView[]> {
   const tripRows = await db
     .select()
     .from(trips)
-    .where(userId ? eq(trips.userId, userId) : sql`true`)
+    .where(eq(trips.userId, userId))
     .orderBy(desc(trips.createdAt));
 
   if (tripRows.length === 0) return [];
@@ -98,11 +103,11 @@ export async function listTrips(userId?: string): Promise<TripListItemView[]> {
   });
 }
 
-export async function getTripDetail(tripId: string, userId?: string): Promise<TripDetailView | null> {
+export async function getTripDetail(tripId: string, userId: string): Promise<TripDetailView | null> {
   const [trip] = await db
     .select()
     .from(trips)
-    .where(userId ? and(eq(trips.id, tripId), eq(trips.userId, userId)) : eq(trips.id, tripId))
+    .where(and(eq(trips.id, tripId), eq(trips.userId, userId)))
     .limit(1);
 
   if (!trip) return null;

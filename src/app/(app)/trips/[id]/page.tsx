@@ -1,4 +1,5 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { getSession } from '@/lib/auth/session';
 import { TripDetailScreen } from '@/features/trips/TripDetailScreen';
 import { EmptyState } from '@/components/ui';
 import type { TripDetailView } from '@/features/trips/trips-types';
@@ -18,8 +19,11 @@ export default async function TripDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await getSession();
+  if (!session) redirect('/login');
+
   const { id } = await params;
-  const trip = await loadTrip(id);
+  const trip = await loadTrip(id, session.userId);
 
   if (trip === 'unavailable') {
     return (
@@ -34,10 +38,10 @@ export default async function TripDetailPage({
   return <TripDetailScreen trip={trip} />;
 }
 
-async function loadTrip(id: string): Promise<TripDetailView | null | 'unavailable'> {
+async function loadTrip(id: string, userId: string): Promise<TripDetailView | null | 'unavailable'> {
   try {
     const { getTripDetail } = await import('@/infrastructure/persistence/queries/trips');
-    return await getTripDetail(id);
+    return await getTripDetail(id, userId);
   } catch {
     return 'unavailable';
   }

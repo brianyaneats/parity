@@ -29,12 +29,14 @@ export interface SavedComparisonView {
 
 export async function findComparisonById(
   id: string,
-  userId?: string,
+  userId: string,
 ): Promise<SavedComparisonView | null> {
+  // `userId` is required so a comparison UUID alone is never enough to read
+  // someone else's snapshot — a wrong-owner id looks identical to a missing one.
   const rows = await db
     .select()
     .from(comparisons)
-    .where(userId ? and(eq(comparisons.id, id), eq(comparisons.userId, userId)) : eq(comparisons.id, id))
+    .where(and(eq(comparisons.id, id), eq(comparisons.userId, userId)))
     .limit(1);
 
   const row = rows[0];
@@ -53,6 +55,27 @@ export async function findComparisonById(
     chosenChannel: row.chosenChannel,
     recomputedFromId: null,
   };
+}
+
+/**
+ * Existence check for the `/compare` first-run banner — §7.3's onboarding
+ * addition. The banner's only question is "has this user saved *anything*
+ * yet", so this is deliberately not `listComparisons(userId, 1).length`: that
+ * would still hydrate `context_snapshot`/`result_snapshot`/`quotes`/
+ * `competing_rates` for a row nobody asked to see. `limit(1)` on the bare id
+ * column is the cheapest true/false this table can answer.
+ *
+ * `userId` is required, matching every other function in this file — a
+ * missing id is not "no comparisons", it is a caller bug.
+ */
+export async function hasAnyComparisons(userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: comparisons.id })
+    .from(comparisons)
+    .where(eq(comparisons.userId, userId))
+    .limit(1);
+
+  return rows.length > 0;
 }
 
 export async function listComparisons(

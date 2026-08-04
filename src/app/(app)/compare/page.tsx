@@ -1,7 +1,9 @@
-import { CompareScreen, type PropertyOption } from '@/features/compare/CompareScreen';
+import { cookies } from 'next/headers';
+import { CompareScreen, type CardVisibility, type PropertyOption } from '@/features/compare/CompareScreen';
+import { ONBOARDING_DISMISSED_COOKIE } from '@/features/compare/onboardingCookie';
 import { PROPERTY_SEEDS } from '@/infrastructure/persistence/seed/properties.seed';
 import type { BrandOrNone } from '@/domain/rules/channels.rules';
-import { getSession } from '@/lib/auth/session';
+import { getSession, type Session } from '@/lib/auth/session';
 import { toIsoDate } from '@/domain/credit/CreditWindow';
 import {
   deriveBucketAvailability,
@@ -27,11 +29,23 @@ export const metadata = { title: 'Compare · Parity' };
  *
  * §5.3 / Defect A: the caller's live credit-bucket snapshot is hydrated here
  * too, for the same reason — see `loadBucketAvailability`'s own doc comment.
+ *
+ * Onboarding addition: also determines whether to show the first-run welcome
+ * banner (`loadShowOnboarding`) and which of the two statement-credit toggles
+ * the caller should even see (`loadCardVisibility` — honest cards gating,
+ * see that function's own comment). `getSession()` is read once, here, and
+ * threaded into every loader below instead of each one calling it again —
+ * cheap either way (a signed cookie decode, no I/O), but one call keeps the
+ * four loaders reading the same caller identity by construction.
  */
 export default async function ComparePage() {
-  const [properties, bucketHydration] = await Promise.all([
+  const session = await getSession();
+
+  const [properties, bucketHydration, cardVisibility, showOnboarding] = await Promise.all([
     loadProperties(),
-    loadBucketAvailability(),
+    loadBucketAvailability(session),
+    loadCardVisibility(session),
+    loadShowOnboarding(session),
   ]);
 
   return (
@@ -40,6 +54,8 @@ export default async function ComparePage() {
       initialBucketAvailability={bucketHydration.snapshot}
       bucketAvailabilityKnown={bucketHydration.known}
       currentYear={new Date().getUTCFullYear()}
+      cardVisibility={cardVisibility}
+      showOnboarding={showOnboarding}
     />
   );
 }
@@ -91,12 +107,11 @@ async function loadProperties(): Promise<readonly PropertyOption[]> {
  * is what lets `CompareScreen` render the visible "could not check your
  * credits" note instead of presenting the assumption as fact.
  */
-async function loadBucketAvailability(): Promise<{
+async function loadBucketAvailability(session: Session | null): Promise<{
   snapshot: BucketAvailabilitySnapshot;
   known: boolean;
 }> {
   try {
-    const session = await getSession();
     if (!session) return { snapshot: ASSUME_AVAILABLE, known: false };
 
     const { listLiveCreditBuckets } = await import(
@@ -116,3 +131,65 @@ const ASSUME_AVAILABLE: BucketAvailabilitySnapshot = {
   editBucketAvailable: true,
   editRemainingCents: CSR_EDIT_CREDIT_FACE_CENTS,
 };
+
+/** Both toggles show — today's founding assumption, and the honest fallback
+ * for a caller who hasn't configured any card, or whom this couldn't check. */
+const BOTH_CARDS_VISIBLE: CardVisibility = { amex: true, edit: true };
+
+/**
+ * Honest cards gating (Feature B, item 3). `/settings`' `CardsSection` lets a
+ * caller declare which cards they actually hold; until now nothing on
+ * `/compare` read it, so the Amex and Chase statement-credit toggles showed
+ * for every caller regardless — including one who has explicitly said they
+ * only carry a Chase Sapphire Reserve, no Amex Platinum.
+ *
+ * Fails open to `BOTH_CARDS_VISIBLE` on every uncertain case — no session, no
+ * configured cards, or a database miss. That is the opposite direction from
+ * §5.3/Defect A's money-math conservatism deliberately: showing one extra
+ * toggle the caller doesn't need is a minor annoyance, not the "confidently
+ * wrong dollar figure" §7.5 warns about, so there is no honest reason to hide
+ * a toggle this function isn't actually sure the caller lacks.
+ *
+ * `CompareScreen` gates on the result server-side by not rendering the hidden
+ * toggle at all and by never letting its underlying boolean reach the engine
+ * — see that component's own comment on `cardVisibility`.
+ */
+async function loadCardVisibility(session: Session | null): Promise<CardVisibility> {
+  try {
+    if (!session) return BOTH_CARDS_VISIBLE;
+
+    const { listActiveCards } = await import('@/infrastructure/persistence/queries/cards');
+    const activeKinds = await listActiveCards(session.userId);
+    if (activeKinds.length === 0) return BOTH_CARDS_VISIBLE;
+
+    return {
+      amex: activeKinds.includes('AMEX_PLATINUM'),
+      edit: activeKinds.includes('CSR'),
+    };
+  } catch {
+    return BOTH_CARDS_VISIBLE;
+  }
+}
+
+/**
+ * §7.3 onboarding: whether to render `OnboardingBanner` above the compare
+ * form. True only for a signed-in caller with zero saved comparisons who has
+ * not already dismissed it (`ONBOARDING_DISMISSED_COOKIE`). An anonymous
+ * caller never sees it — there is nothing for "load a sample comparison" to
+ * save it against — and a database hiccup degrades to "no banner" rather
+ * than breaking the comparator itself, the same resilience direction as
+ * every other read on this page.
+ */
+async function loadShowOnboarding(session: Session | null): Promise<boolean> {
+  if (!session) return false;
+
+  try {
+    const store = await cookies();
+    if (store.get(ONBOARDING_DISMISSED_COOKIE)) return false;
+
+    const { hasAnyComparisons } = await import('@/infrastructure/persistence/queries/comparisons');
+    return !(await hasAnyComparisons(session.userId));
+  } catch {
+    return false;
+  }
+}

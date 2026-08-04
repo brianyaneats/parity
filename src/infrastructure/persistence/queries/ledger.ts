@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { bookings, comparisons, savingsEvents } from '../schema';
 import type { SavingsEventKind } from '@/features/ledger/ledger-aggregate';
@@ -13,8 +13,11 @@ import type { LedgerEventView } from '@/features/ledger/ledger-types';
  * manually logged credit burn, say) simply carries nulls through the joins
  * rather than being excluded — `LedgerEventView` and the UI both treat that
  * as "not drillable," not as an error.
+ *
+ * `userId` is required — the optional-with-unfiltered-fallback version of this
+ * signature is how `/ledger` once served every user's events to anyone.
  */
-export async function listSavingsEvents(userId?: string): Promise<LedgerEventView[]> {
+export async function listSavingsEvents(userId: string): Promise<LedgerEventView[]> {
   const rows = await db
     .select({
       id: savingsEvents.id,
@@ -32,7 +35,7 @@ export async function listSavingsEvents(userId?: string): Promise<LedgerEventVie
     .from(savingsEvents)
     .leftJoin(bookings, eq(savingsEvents.bookingId, bookings.id))
     .leftJoin(comparisons, eq(bookings.comparisonId, comparisons.id))
-    .where(userId ? eq(savingsEvents.userId, userId) : sql`true`)
+    .where(eq(savingsEvents.userId, userId))
     .orderBy(desc(savingsEvents.occurredOn));
 
   return rows.map((row) => ({

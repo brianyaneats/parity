@@ -7,6 +7,7 @@
  * migrations were applied and exits non-zero on failure so CI/CD treats a
  * failed migration as a failed deploy rather than a silent no-op.
  */
+import './load-env';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';

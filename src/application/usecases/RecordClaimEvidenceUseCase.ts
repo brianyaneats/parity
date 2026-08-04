@@ -99,6 +99,7 @@ export class RecordClaimEvidenceUseCase extends CommandUseCase<
     const signed = await this.storage.createSignedUploadUrl({
       keyPrefix: `claims/${input.id}`,
       contentType: input.contentType,
+      userId: input.userId,
     });
     await this.competingRates.setScreenshotKey(competingRateId, signed.key);
 

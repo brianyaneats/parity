@@ -79,7 +79,7 @@ test.describe('Deadline expiry', () => {
   // specific failure — see `.github/workflows/ci.yml`'s `e2e` job comment for
   // why this is a real improvement rather than a complete fix of every
   // cross-file reset race.
-  test.beforeAll(resetDemoData);
+  test.beforeAll(() => resetDemoData());
 
   test('once past its 24h deadline, a claim can no longer be marked SUBMITTED', async ({
     page,

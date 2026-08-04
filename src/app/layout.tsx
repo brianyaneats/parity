@@ -48,7 +48,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // to the blocking bootstrap script below.
   const hint = (await headers()).get('sec-ch-prefers-color-scheme');
   const hasCookie = cookieStore.has(THEME_COOKIE);
-  const systemPrefersDark = hint ? hint === 'dark' : true;
+  // No hint means guess light: the system is light-first (measured re-skin,
+  // D-158), and the bootstrap script corrects from matchMedia before paint.
+  const systemPrefersDark = hint ? hint === 'dark' : false;
   const resolved = resolveTheme(preference, systemPrefersDark);
 
   // The script runs only on the very first visit, before any cookie exists.

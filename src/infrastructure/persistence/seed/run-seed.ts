@@ -15,6 +15,7 @@
  *    (§0.4, §4.4) — set `PARITY_DEMO_USER` in `.env` to the id this script
  *    prints to sign in as it locally with no SMTP provider configured.
  */
+import '../load-env';
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db';

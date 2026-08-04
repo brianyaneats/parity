@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getSession } from '@/lib/auth/session';
 import { EmptyState } from '@/components/ui';
 import { ClaimKit, type ClaimKitData } from '@/features/claims/ClaimKit';
 
@@ -26,8 +28,11 @@ type LoadResult =
  * keyboard-reachable without any extra wiring).
  */
 export default async function ClaimDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) redirect('/login');
+
   const { id } = await params;
-  const result = await loadClaimKit(id);
+  const result = await loadClaimKit(id, session.userId);
 
   if (result.kind === 'not_found') {
     return (
@@ -54,7 +59,7 @@ export default async function ClaimDetailPage({ params }: { params: Promise<{ id
   return <ClaimKit data={result.data} />;
 }
 
-async function loadClaimKit(id: string): Promise<LoadResult> {
+async function loadClaimKit(id: string, userId: string): Promise<LoadResult> {
   try {
     const [{ db }, schema, drizzleOrm] = await Promise.all([
       import('@/infrastructure/persistence/db'),
@@ -65,7 +70,7 @@ async function loadClaimKit(id: string): Promise<LoadResult> {
     const { daysBetween } = await import('@/domain/shared/Clock');
 
     const { claims, bookings, comparisons, properties, competingRates } = schema;
-    const { eq } = drizzleOrm;
+    const { and, eq } = drizzleOrm;
 
     const rows = await db
       .select({
@@ -80,7 +85,10 @@ async function loadClaimKit(id: string): Promise<LoadResult> {
       .leftJoin(comparisons, eq(bookings.comparisonId, comparisons.id))
       .leftJoin(properties, eq(comparisons.propertyId, properties.id))
       .leftJoin(competingRates, eq(claims.competingRateId, competingRates.id))
-      .where(eq(claims.id, id))
+      // Owner-scoped: a claim UUID alone must never be enough to read someone
+      // else's claim kit. A wrong-owner id renders the same `not_found` as a
+      // missing one — the response never confirms the id exists.
+      .where(and(eq(claims.id, id), eq(claims.userId, userId)))
       .limit(1);
 
     const row = rows[0];

@@ -65,5 +65,5 @@ export const THEME_BOOTSTRAP_SCRIPT = `
 var d=window.matchMedia('(prefers-color-scheme: dark)').matches;
 document.documentElement.setAttribute('data-theme', d?'dark':'light');
 document.cookie='${THEME_COOKIE}=system;path=/;max-age=${THEME_COOKIE_MAX_AGE};samesite=lax';
-}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();
+}catch(e){document.documentElement.setAttribute('data-theme','light');}})();
 `.trim();

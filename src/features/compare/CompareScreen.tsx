@@ -28,6 +28,7 @@ import {
 import { useComparison } from './useComparison';
 import { useSaveComparison, canPersist } from './useSaveComparison';
 import { PasteRateBlock } from './PasteRateBlock';
+import { OnboardingBanner } from './OnboardingBanner';
 import { nightsBetween, type ParsedRate } from '@/domain/parsing/rate-paste-parser';
 import { cn } from '@/lib/cn';
 import { formatCents, formatSaving } from '@/lib/format';
@@ -88,6 +89,22 @@ export interface PropertyOption {
   readonly propertyCreditKind: string;
 }
 
+/**
+ * Honest cards gating (Feature B, item 3) — which of the two statement-credit
+ * toggles the caller should see at all. Computed server-side
+ * (`src/app/(app)/compare/page.tsx`'s `loadCardVisibility`) from the caller's
+ * `/settings` card configuration: both `true` when nothing is configured
+ * (today's founding assumption), otherwise only the card(s) actually held.
+ *
+ * `amex` gates the Amex Platinum $300 hotel-credit toggle, `edit` gates the
+ * Chase Sapphire Reserve $250 Edit-credit toggle — matching
+ * `CREDIT_BUCKET_DEFINITIONS`' own `card` field (`'AMEX_PLATINUM' | 'CSR'`).
+ */
+export interface CardVisibility {
+  readonly amex: boolean;
+  readonly edit: boolean;
+}
+
 interface QuoteDraft {
   readonly key: string;
   readonly channel: Channel;
@@ -129,6 +146,11 @@ export interface CompareScreenProps {
   readonly bucketAvailabilityKnown: boolean;
   /** §Defect E: resolves an unqualified paste date ("Sep 1") to a real year. */
   readonly currentYear: number;
+  /** Honest cards gating — see `CardVisibility`'s own doc comment. */
+  readonly cardVisibility: CardVisibility;
+  /** §7.3 onboarding: renders `OnboardingBanner` above the form when true —
+   * a signed-in caller with zero saved comparisons who hasn't dismissed it. */
+  readonly showOnboarding: boolean;
 }
 
 export function CompareScreen({
@@ -136,6 +158,8 @@ export function CompareScreen({
   initialBucketAvailability,
   bucketAvailabilityKnown,
   currentYear,
+  cardVisibility,
+  showOnboarding,
 }: CompareScreenProps) {
   const [propertyId, setPropertyId] = useState<string | undefined>(undefined);
   const [nights, setNights] = useState(3);
@@ -418,8 +442,14 @@ export function CompareScreen({
       mrValueMicro,
       urValueMicro,
       foraRateBps,
-      amexBucketAvailable,
-      editBucketAvailable,
+      // Honest cards gating: a hidden toggle's boolean must never reach the
+      // engine as `true`, even if the underlying state somehow is — see
+      // `CardVisibility`'s own comment. A caller who hasn't configured an
+      // Amex Platinum should never be shown perks or a statement credit they
+      // have no card to actually claim, whether or not the toggle itself is
+      // on screen for them to have set it.
+      amexBucketAvailable: cardVisibility.amex && amexBucketAvailable,
+      editBucketAvailable: cardVisibility.edit && editBucketAvailable,
       competitorBaseCents: (competitorBaseCents ?? null) as Cents | null,
       competitorRefundable,
       competitorPublic,
@@ -437,6 +467,8 @@ export function CompareScreen({
       foraRateBps,
       amexBucketAvailable,
       editBucketAvailable,
+      cardVisibility.amex,
+      cardVisibility.edit,
       competitorBaseCents,
       competitorRefundable,
       competitorPublic,
@@ -572,450 +604,476 @@ export function CompareScreen({
   const ota = result?.results.find((r) => r.channel === 'OTA') ?? null;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 p-4 lg:flex-row lg:p-6">
-      {/* ═══════════════════════════════════════════════ INPUTS (left, sticky) */}
-      <section
-        aria-label="Stay details"
-        className="order-2 flex w-full shrink-0 flex-col gap-4 lg:order-1 lg:w-inputs lg:sticky lg:top-6 lg:self-start"
-      >
-        <Card className="flex flex-col gap-4">
-          <Combobox
-            label="Property"
-            value={propertyId}
-            onChange={selectProperty}
-            // Defect B / §7.3 item 1: a property outside the seeded ~47 used
-            // to force a detour to /properties before a comparison could even
-            // start. `onCreate` is generic on the primitive; this is the one
-            // place that generic hook becomes "make a minimal user-scoped
-            // property and select it" — see `createProperty`'s own comment.
-            onCreate={creatingProperty ? undefined : createProperty}
-            createLabel={(text) => `Create “${text}” as a new property`}
-            placeholder="Search seeded and saved properties, or type to add one"
-            noResultsMessage="No matches. Keep typing the full name to add it."
-            options={localProperties.map((p) => ({
-              value: p.id,
-              label: p.name,
-              sublabel: `${p.city} · ${membershipSummary(p)}`,
-            }))}
-          />
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 p-4 lg:p-6">
+      {/* §7.3 onboarding — above the whole form, not inside either column, so
+          it reads before the user has committed to either side of the
+          layout. Renders nothing once dismissed or once a first comparison
+          exists — see `showOnboarding`'s own doc comment on the prop. */}
+      {showOnboarding ? <OnboardingBanner /> : null}
 
-          {!bucketAvailabilityKnown ? (
-            <p className="flex gap-2 rounded-sm border border-status-warning p-2 text-xs text-text-secondary">
-              {/* §6.7: colour is never the sole carrier. */}
-              <span aria-hidden="true" className="font-mono text-status-warning">
-                ▲
-              </span>
-              <span>
-                <span className="sr-only">Check: </span>
-                Could not check your live credit balance — showing both statement credits as
-                available. Verify on the <Link href="/credits" className="underline">Credits</Link>{' '}
-                screen before you book.
-              </span>
-            </p>
-          ) : null}
-
-          {createPropertyError ? (
-            <p role="alert" className="text-xs text-status-critical">
-              {createPropertyError}
-            </p>
-          ) : null}
-
-          {property && property.id === justCreatedPropertyId ? (
-            // §8.5's hint, surfaced inline rather than forcing the detour
-            // this defect exists to remove: a free-text property starts with
-            // no known FHR/THC/Edit membership, so nothing was pre-filled
-            // above and no programme-mismatch warning will fire for it
-            // either, until the real membership is recorded.
-            <p className="text-xs text-text-muted">
-              Created “{property.name}”. Its Fine Hotels + Resorts, Hotel Collection and Edit
-              membership is unknown until you set it on the{' '}
-              <Link href="/properties" className="underline">
-                Properties
-              </Link>{' '}
-              screen — until then no channel rows are pre-filled for it.
-            </p>
-          ) : null}
-
-          {/* §7.3 item 2: "Dates (range picker) → auto-computes `nights` and
-              shows it read-only." Dates stay optional so §13.3's "a useful
-              comparison needs only two numbers" still holds — with no dates,
-              nights is entered directly; with dates, it is derived and locked. */}
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Check-in"
-              type="date"
-              value={checkIn}
-              onChange={(event) => setCheckIn(event.target.value)}
+      <div className="flex w-full flex-col gap-5 lg:flex-row">
+        {/* ═══════════════════════════════════════════════ INPUTS (left, sticky) */}
+        <section
+          aria-label="Stay details"
+          className="order-2 flex w-full shrink-0 flex-col gap-4 lg:order-1 lg:w-inputs lg:sticky lg:top-6 lg:self-start"
+        >
+          <Card className="flex flex-col gap-4">
+            <Combobox
+              label="Property"
+              value={propertyId}
+              onChange={selectProperty}
+              // Defect B / §7.3 item 1: a property outside the seeded ~47 used
+              // to force a detour to /properties before a comparison could even
+              // start. `onCreate` is generic on the primitive; this is the one
+              // place that generic hook becomes "make a minimal user-scoped
+              // property and select it" — see `createProperty`'s own comment.
+              onCreate={creatingProperty ? undefined : createProperty}
+              createLabel={(text) => `Create “${text}” as a new property`}
+              placeholder="Search seeded and saved properties, or type to add one"
+              noResultsMessage="No matches. Keep typing the full name to add it."
+              options={localProperties.map((p) => ({
+                value: p.id,
+                label: p.name,
+                sublabel: `${p.city} · ${membershipSummary(p)}`,
+              }))}
             />
-            <Input
-              label="Check-out"
-              type="date"
-              value={checkOut}
-              onChange={(event) => setCheckOut(event.target.value)}
-            />
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {derivedNights !== null ? (
-              <div>
-                <p className="text-xs text-text-secondary">Nights</p>
-                <p className="tnum text-h3 text-text-primary">{derivedNights}</p>
-                <p className="text-xs text-text-muted">From your dates.</p>
-              </div>
-            ) : (
-              <NumberInput
-                label="Nights"
-                value={nights}
-                onChange={(value) => setNights(Math.max(1, value ?? 1))}
-                min={1}
-                step={1}
-                hint="Or enter dates above."
-              />
-            )}
-            <TaxRateField
-              valueBps={taxRateBps}
-              onChange={setTaxRateBps}
-              onUseTotal={applyTotalToFirstEmptyQuote}
-            />
-          </div>
-        </Card>
-
-        {/* ------------------------------------------------- channel quotes */}
-        <Card className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-h3 text-text-primary">Channel quotes</h2>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setQuotes((rows) => [...rows, makeQuote('EDIT')])}
-            >
-              Add channel
-            </Button>
-          </div>
-
-          {quotes.length === 0 ? (
-            <p className="text-sm text-text-muted">
-              Pick a property to pre-fill the channels it belongs to, or add one manually.
-            </p>
-          ) : null}
-
-          {quotes.map((quote, index) => (
-            <QuoteRow
-              key={quote.key}
-              quote={quote}
-              programmeMismatch={programmeMismatch(quote.channel, property)}
-              onChange={(next) =>
-                setQuotes((rows) => rows.map((row, i) => (i === index ? next : row)))
-              }
-              onRemove={() => setQuotes((rows) => rows.filter((_, i) => i !== index))}
-            />
-          ))}
-
-          {/* §13.3 names input friction as the existential risk and makes the
-              paste parser required. It only ever fills fields the user then
-              sees and can correct — nothing here reaches the engine unreviewed.
-
-              Defect E: `assumeYear` was never passed, so a yearless paste
-              like "Sep 1" — the overwhelmingly common case, since almost no
-              hotel portal prints the year on its own rate summary — failed to
-              parse at all. `currentYear` comes from the server page
-              (`ComparePage`), not `new Date()` here, so the very first
-              server-rendered paint and the client hydration agree on it. */}
-          <PasteRateBlock onApply={applyParsedRate} assumeYear={currentYear} />
-        </Card>
-
-        {/* ----------------------------------------------- competing rate */}
-        <Card className="flex flex-col gap-3">
-          <h2 className="text-h3 text-text-primary">Competing rate</h2>
-          <CurrencyInput
-            label="Base rate, excluding tax"
-            value={competitorBaseCents}
-            onChange={setCompetitorBaseCents}
-            hint="Only the base rate is compared. Taxes are never refunded on either side."
-          />
-
-          {/* §7.3: "Two toggles are the difference between a valid and an
-              invalid claim, so they carry inline help." */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input
-              label="Site"
-              value={competitorSiteDomain}
-              onChange={(event) => setCompetitorSiteDomain(event.target.value)}
-              placeholder="booking.com"
-              hint="Where you found it."
-            />
-            <Input
-              label="URL"
-              value={competitorUrl}
-              onChange={(event) => setCompetitorUrl(event.target.value)}
-              placeholder="https://…"
-              hint="Carried onto the claim as evidence."
-            />
-          </div>
-
-          <Toggle
-            label="The competing rate is refundable"
-            checked={competitorRefundable}
-            onCheckedChange={setCompetitorRefundable}
-            description="A cheaper non-refundable rate never qualifies against a refundable booking. This is the most common denial cause."
-          />
-          <Toggle
-            label="The competing rate is publicly available"
-            checked={competitorPublic}
-            onCheckedChange={setCompetitorPublic}
-            description="Member, loyalty, AAA, corporate and promotional rates are all excluded — even when the membership is free and instant."
-          />
-        </Card>
-
-        {/* -------------------------------------------------- assumptions */}
-        <Disclosure summary="Assumptions">
-          <div className="flex flex-col gap-3 pt-2">
-            <CurrencyInput
-              label="Breakfast per day"
-              value={breakfastPerDayCents}
-              onChange={setBreakfast}
-              hint="What you would otherwise have paid, not the menu price."
-            />
-            <CurrencyInput
-              label="On-property credit face value"
-              value={propertyCreditFaceCents}
-              onChange={setPropertyCreditFace}
-              hint={
-                property
-                  ? `From ${property.name}.`
-                  : 'No property selected, so this is an assumption — the real figure is usually $250 (Edit) or $300 (Amex).'
-              }
-            />
-            <NumberInput
-              label="Property credit realization %"
-              value={realizationPct}
-              onChange={(value) => {
-                // Defect C: a manual edit is the one thing the SPA/RESORT
-                // auto-default in `applyProperty` must never overwrite.
-                realizationPctTouched.current = true;
-                setRealizationPct(clamp(value ?? 100, 0, 100));
-              }}
-              min={0}
-              max={100}
-              hint={
-                PROPERTY_CREDIT_KIND_HINTS[
-                  (property?.propertyCreditKind as PropertyCreditKind | undefined) ?? 'ANY'
-                ] ?? PROPERTY_CREDIT_KIND_HINTS.ANY
-              }
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <NumberInput
-                label="MR value (micro-cents)"
-                value={mrValueMicro}
-                onChange={(value) => setMr(Math.max(0, value ?? 0))}
-                min={0}
-                step={500}
-                hint="15000 = 1.5¢"
-              />
-              <NumberInput
-                label="UR value (micro-cents)"
-                value={urValueMicro}
-                onChange={(value) => setUr(Math.max(0, value ?? 0))}
-                min={0}
-                step={500}
-                hint="17500 = 1.75¢"
-              />
-            </div>
-            <NumberInput
-              label="Fora commission (bps)"
-              value={foraRateBps}
-              onChange={(value) => setForaRate(clamp(value ?? 0, 0, 10_000))}
-              min={0}
-              max={10_000}
-              hint="700 = 7%. A post-stay rebate, not a discount."
-            />
-            <Toggle
-              label="Amex $300 hotel credit still available"
-              checked={amexBucketAvailable}
-              onCheckedChange={setAmexBucket}
-              description={bucketAvailabilityDescription({
-                available: displayedBucketAvailability.amexBucketAvailable,
-                remainingCents: displayedBucketAvailability.amexRemainingCents,
-              })}
-            />
-            <Toggle
-              label="Chase $250 Edit credit still available"
-              checked={editBucketAvailable}
-              onCheckedChange={setEditBucket}
-              description={bucketAvailabilityDescription({
-                available: displayedBucketAvailability.editBucketAvailable,
-                remainingCents: displayedBucketAvailability.editRemainingCents,
-              })}
-            />
-          </div>
-        </Disclosure>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════ RESULTS (right) */}
-      <section
-        aria-label="Results"
-        className="order-1 min-w-0 flex-1 lg:order-2"
-        aria-busy={status === 'computing'}
-      >
-        {/* §6.7: "live regions announce recompute results."
-            Exactly ONE live region for this column. Two would compete: a screen
-            reader interrupts itself when a second polite region changes, so the
-            save confirmation would talk over the recompute announcement — and
-            whichever lost is the one the user needed. The most recent
-            meaningful event wins instead. */}
-        <p className="sr-only" role="status" aria-live="polite">
-          {announcement}
-        </p>
-
-        {!property && engineQuotes.length === 0 ? (
-          // Empty state — §7.3: "show a one-line prompt and nothing else."
-          <EmptyState message="Pick a property to start, or add a channel quote manually." />
-        ) : engineQuotes.length < 2 ? (
-          <EmptyState
-            message="Add a second channel to compare. One quote has nothing to be ranked against."
-            action={{
-              label: 'Add channel',
-              onClick: () => setQuotes((rows) => [...rows, makeQuote('FHR')]),
-            }}
-          />
-        ) : (
-          <div
-            className={cn(
-              'flex flex-col gap-4 transition-opacity duration-fast ease-standard',
-              // Dimmed while recomputing, holding previous values. §7.3
-              // requires no layout shift, so nothing is removed from the tree.
-              status === 'computing' && 'opacity-60',
-            )}
-          >
-            {error ? (
-              <Card className="border-status-critical">
-                <p className="text-sm text-text-primary">{error}</p>
-                <Button variant="secondary" size="sm" className="mt-2" onClick={retry}>
-                  Try again
-                </Button>
-              </Card>
+            {!bucketAvailabilityKnown ? (
+              <p className="flex gap-2 rounded-sm border border-status-warning p-2 text-xs text-text-secondary">
+                {/* §6.7: colour is never the sole carrier. */}
+                <span aria-hidden="true" className="font-mono text-status-warning">
+                  ▲
+                </span>
+                <span>
+                  <span className="sr-only">Check: </span>
+                  Could not check your live credit balance — showing both statement credits as
+                  available. Verify on the <Link href="/credits" className="underline">Credits</Link>{' '}
+                  screen before you book.
+                </span>
+              </p>
             ) : null}
 
-            {result && winner ? (
-              <>
-                {/* ------------------------------------------ stat tiles */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <StatTile
-                    hero
-                    label="You save"
-                    value={formatSaving((worst?.effectiveNetCents ?? 0) - winner.effectiveNetCents)}
-                    sublabel={
-                      worst ? `${winner.label} versus ${worst.label}` : 'versus the worst option'
-                    }
-                  />
-                  <StatTile
-                    label="You capture"
-                    value={formatCents(
-                      winner.perksCents +
-                        winner.creditKeptCents +
-                        winner.pointsValueCents +
-                        winner.refundCents +
-                        winner.rebateCents,
-                    )}
-                    sublabel="Perks, credits, points and any refund"
-                  />
-                  <StatTile
-                    label="You forfeit if you book wrong"
-                    value={
-                      ota
-                        ? formatSaving(ota.effectiveNetCents - winner.effectiveNetCents)
-                        : '—'
-                    }
-                    sublabel={ota ? 'versus the naive OTA rate' : 'Add an OTA rate to see this'}
-                  />
+            {createPropertyError ? (
+              <p role="alert" className="text-xs text-status-critical">
+                {createPropertyError}
+              </p>
+            ) : null}
+
+            {property && property.id === justCreatedPropertyId ? (
+              // §8.5's hint, surfaced inline rather than forcing the detour
+              // this defect exists to remove: a free-text property starts with
+              // no known FHR/THC/Edit membership, so nothing was pre-filled
+              // above and no programme-mismatch warning will fire for it
+              // either, until the real membership is recorded.
+              <p className="text-xs text-text-muted">
+                Created “{property.name}”. Its Fine Hotels + Resorts, Hotel Collection and Edit
+                membership is unknown until you set it on the{' '}
+                <Link href="/properties" className="underline">
+                  Properties
+                </Link>{' '}
+                screen — until then no channel rows are pre-filled for it.
+              </p>
+            ) : null}
+
+            {/* §7.3 item 2: "Dates (range picker) → auto-computes `nights` and
+                shows it read-only." Dates stay optional so §13.3's "a useful
+                comparison needs only two numbers" still holds — with no dates,
+                nights is entered directly; with dates, it is derived and locked. */}
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Check-in"
+                type="date"
+                value={checkIn}
+                onChange={(event) => setCheckIn(event.target.value)}
+              />
+              <Input
+                label="Check-out"
+                type="date"
+                value={checkOut}
+                onChange={(event) => setCheckOut(event.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {derivedNights !== null ? (
+                <div>
+                  <p className="text-xs text-text-secondary">Nights</p>
+                  <p className="tnum text-h3 text-text-primary">{derivedNights}</p>
+                  <p className="text-xs text-text-muted">From your dates.</p>
                 </div>
-
-                {/* ------------------------------------- the ranked bars */}
-                <ChannelBarList ranked={result.ranked} />
-
-                {/* §8.4 — persistent, never a tooltip. */}
-                <FhrAsymmetryNote results={result.results} />
-
-                {/* §8.3 — before the user leaves for the portal. */}
-                <ClawbackGuard result={winner} />
-
-                {/* §8.2 */}
-                <PriceMatchPanel
-                  result={winner}
-                  hasCompetitor={context.competitorBaseCents !== null}
+              ) : (
+                <NumberInput
+                  label="Nights"
+                  value={nights}
+                  onChange={(value) => setNights(Math.max(1, value ?? 1))}
+                  min={1}
+                  step={1}
+                  hint="Or enter dates above."
                 />
+              )}
+              <TaxRateField
+                valueBps={taxRateBps}
+                onChange={setTaxRateBps}
+                onUseTotal={applyTotalToFirstEmptyQuote}
+              />
+            </div>
+          </Card>
 
-                {/* §3.5 — a fork, never additive. */}
-                {result.brg ? <BrgFork brg={result.brg} winner={winner} /> : null}
+          {/* ------------------------------------------------- channel quotes */}
+          <Card className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-h3 text-text-primary">Channel quotes</h2>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setQuotes((rows) => [...rows, makeQuote('EDIT')])}
+              >
+                Add channel
+              </Button>
+            </div>
 
-                {/* §8.7 — only on the authoritative result, which includes it. */}
-                <SensitivityPanel outcome={result} />
+            {quotes.length === 0 ? (
+              <p className="text-sm text-text-muted">
+                Pick a property to pre-fill the channels it belongs to, or add one manually.
+              </p>
+            ) : null}
 
-                {/* §3.7 */}
-                <WarningList
-                  warnings={[
-                    ...result.warnings,
-                    ...result.results.flatMap((r) => r.warnings),
-                  ]}
+            {quotes.map((quote, index) => (
+              <QuoteRow
+                key={quote.key}
+                quote={quote}
+                programmeMismatch={programmeMismatch(quote.channel, property)}
+                onChange={(next) =>
+                  setQuotes((rows) => rows.map((row, i) => (i === index ? next : row)))
+                }
+                onRemove={() => setQuotes((rows) => rows.filter((_, i) => i !== index))}
+              />
+            ))}
+
+            {/* §13.3 names input friction as the existential risk and makes the
+                paste parser required. It only ever fills fields the user then
+                sees and can correct — nothing here reaches the engine unreviewed.
+
+                Defect E: `assumeYear` was never passed, so a yearless paste
+                like "Sep 1" — the overwhelmingly common case, since almost no
+                hotel portal prints the year on its own rate summary — failed to
+                parse at all. `currentYear` comes from the server page
+                (`ComparePage`), not `new Date()` here, so the very first
+                server-rendered paint and the client hydration agree on it. */}
+            <PasteRateBlock onApply={applyParsedRate} assumeYear={currentYear} />
+          </Card>
+
+          {/* ----------------------------------------------- competing rate */}
+          <Card className="flex flex-col gap-3">
+            <h2 className="text-h3 text-text-primary">Competing rate</h2>
+            <CurrencyInput
+              label="Base rate, excluding tax"
+              value={competitorBaseCents}
+              onChange={setCompetitorBaseCents}
+              hint="Only the base rate is compared. Taxes are never refunded on either side."
+            />
+
+            {/* §7.3: "Two toggles are the difference between a valid and an
+                invalid claim, so they carry inline help." */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input
+                label="Site"
+                value={competitorSiteDomain}
+                onChange={(event) => setCompetitorSiteDomain(event.target.value)}
+                placeholder="booking.com"
+                hint="Where you found it."
+              />
+              <Input
+                label="URL"
+                value={competitorUrl}
+                onChange={(event) => setCompetitorUrl(event.target.value)}
+                placeholder="https://…"
+                hint="Carried onto the claim as evidence."
+              />
+            </div>
+
+            <Toggle
+              label="The competing rate is refundable"
+              checked={competitorRefundable}
+              onCheckedChange={setCompetitorRefundable}
+              description="A cheaper non-refundable rate never qualifies against a refundable booking. This is the most common denial cause."
+            />
+            <Toggle
+              label="The competing rate is publicly available"
+              checked={competitorPublic}
+              onCheckedChange={setCompetitorPublic}
+              description="Member, loyalty, AAA, corporate and promotional rates are all excluded — even when the membership is free and instant."
+            />
+          </Card>
+
+          {/* -------------------------------------------------- assumptions */}
+          <Disclosure summary="Assumptions">
+            <div className="flex flex-col gap-3 pt-2">
+              <CurrencyInput
+                label="Breakfast per day"
+                value={breakfastPerDayCents}
+                onChange={setBreakfast}
+                hint="What you would otherwise have paid, not the menu price."
+              />
+              <CurrencyInput
+                label="On-property credit face value"
+                value={propertyCreditFaceCents}
+                onChange={setPropertyCreditFace}
+                hint={
+                  property
+                    ? `From ${property.name}.`
+                    : 'No property selected, so this is an assumption — the real figure is usually $250 (Edit) or $300 (Amex).'
+                }
+              />
+              <NumberInput
+                label="Property credit realization %"
+                value={realizationPct}
+                onChange={(value) => {
+                  // Defect C: a manual edit is the one thing the SPA/RESORT
+                  // auto-default in `applyProperty` must never overwrite.
+                  realizationPctTouched.current = true;
+                  setRealizationPct(clamp(value ?? 100, 0, 100));
+                }}
+                min={0}
+                max={100}
+                hint={
+                  PROPERTY_CREDIT_KIND_HINTS[
+                    (property?.propertyCreditKind as PropertyCreditKind | undefined) ?? 'ANY'
+                  ] ?? PROPERTY_CREDIT_KIND_HINTS.ANY
+                }
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <NumberInput
+                  label="MR value (micro-cents)"
+                  value={mrValueMicro}
+                  onChange={(value) => setMr(Math.max(0, value ?? 0))}
+                  min={0}
+                  step={500}
+                  hint="15000 = 1.5¢"
                 />
+                <NumberInput
+                  label="UR value (micro-cents)"
+                  value={urValueMicro}
+                  onChange={(value) => setUr(Math.max(0, value ?? 0))}
+                  min={0}
+                  step={500}
+                  hint="17500 = 1.75¢"
+                />
+              </div>
+              <NumberInput
+                label="Fora commission (bps)"
+                value={foraRateBps}
+                onChange={(value) => setForaRate(clamp(value ?? 0, 0, 10_000))}
+                min={0}
+                max={10_000}
+                hint="700 = 7%. A post-stay rebate, not a discount."
+              />
+              {/* Honest cards gating (Feature B, item 3): a caller who has told
+                  Parity they hold only one of these two cards never sees the
+                  other's toggle at all — see `CardVisibility`'s own comment and
+                  the `context` memo above, which keeps the hidden one's boolean
+                  out of the engine regardless of this render decision. */}
+              {cardVisibility.amex ? (
+                <Toggle
+                  label="Amex $300 hotel credit still available"
+                  checked={amexBucketAvailable}
+                  onCheckedChange={setAmexBucket}
+                  description={bucketAvailabilityDescription({
+                    available: displayedBucketAvailability.amexBucketAvailable,
+                    remainingCents: displayedBucketAvailability.amexRemainingCents,
+                  })}
+                />
+              ) : null}
+              {cardVisibility.edit ? (
+                <Toggle
+                  label="Chase $250 Edit credit still available"
+                  checked={editBucketAvailable}
+                  onCheckedChange={setEditBucket}
+                  description={bucketAvailabilityDescription({
+                    available: displayedBucketAvailability.editBucketAvailable,
+                    remainingCents: displayedBucketAvailability.editRemainingCents,
+                  })}
+                />
+              ) : null}
+              {!cardVisibility.amex || !cardVisibility.edit ? (
+                <p className="text-xs text-text-muted">
+                  Cards you don&rsquo;t hold are hidden — manage in{' '}
+                  <Link href="/settings" className="underline">
+                    Settings
+                  </Link>
+                  .
+                </p>
+              ) : null}
+            </div>
+          </Disclosure>
+        </section>
 
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="primary"
-                      loading={persistence.state === 'saving'}
-                      disabled={!canPersist(checkIn, checkOut)}
-                      onClick={() => void persistence.save(saveInput)}
-                    >
-                      {persistence.comparisonId ? 'Saved' : 'Save comparison'}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      loading={persistence.state === 'saving'}
-                      disabled={!canPersist(checkIn, checkOut)}
-                      onClick={() => void persistence.markAsBooked(saveInput, winner)}
-                    >
-                      Mark as booked
-                    </Button>
-                    <Button variant="ghost" onClick={() => exportComparison(result)}>
-                      Export
-                    </Button>
-                    {optimistic ? (
-                      <span className="text-xs text-text-muted">Confirming with the server…</span>
+        {/* ═══════════════════════════════════════════════════ RESULTS (right) */}
+        <section
+          aria-label="Results"
+          className="order-1 min-w-0 flex-1 lg:order-2"
+          aria-busy={status === 'computing'}
+        >
+          {/* §6.7: "live regions announce recompute results."
+              Exactly ONE live region for this column. Two would compete: a screen
+              reader interrupts itself when a second polite region changes, so the
+              save confirmation would talk over the recompute announcement — and
+              whichever lost is the one the user needed. The most recent
+              meaningful event wins instead. */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {announcement}
+          </p>
+
+          {!property && engineQuotes.length === 0 ? (
+            // Empty state — §7.3: "show a one-line prompt and nothing else."
+            <EmptyState message="Pick a property to start, or add a channel quote manually." />
+          ) : engineQuotes.length < 2 ? (
+            <EmptyState
+              message="Add a second channel to compare. One quote has nothing to be ranked against."
+              action={{
+                label: 'Add channel',
+                onClick: () => setQuotes((rows) => [...rows, makeQuote('FHR')]),
+              }}
+            />
+          ) : (
+            <div
+              className={cn(
+                'flex flex-col gap-4 transition-opacity duration-fast ease-standard',
+                // Dimmed while recomputing, holding previous values. §7.3
+                // requires no layout shift, so nothing is removed from the tree.
+                status === 'computing' && 'opacity-60',
+              )}
+            >
+              {error ? (
+                <Card className="border-status-critical">
+                  <p className="text-sm text-text-primary">{error}</p>
+                  <Button variant="secondary" size="sm" className="mt-2" onClick={retry}>
+                    Try again
+                  </Button>
+                </Card>
+              ) : null}
+
+              {result && winner ? (
+                <>
+                  {/* ------------------------------------------ stat tiles */}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <StatTile
+                      hero
+                      label="You save"
+                      value={formatSaving((worst?.effectiveNetCents ?? 0) - winner.effectiveNetCents)}
+                      sublabel={
+                        worst ? `${winner.label} versus ${worst.label}` : 'versus the worst option'
+                      }
+                    />
+                    <StatTile
+                      label="You capture"
+                      value={formatCents(
+                        winner.perksCents +
+                          winner.creditKeptCents +
+                          winner.pointsValueCents +
+                          winner.refundCents +
+                          winner.rebateCents,
+                      )}
+                      sublabel="Perks, credits, points and any refund"
+                    />
+                    <StatTile
+                      label="You forfeit if you book wrong"
+                      value={
+                        ota
+                          ? formatSaving(ota.effectiveNetCents - winner.effectiveNetCents)
+                          : '—'
+                      }
+                      sublabel={ota ? 'versus the naive OTA rate' : 'Add an OTA rate to see this'}
+                    />
+                  </div>
+
+                  {/* ------------------------------------- the ranked bars */}
+                  <ChannelBarList ranked={result.ranked} />
+
+                  {/* §8.4 — persistent, never a tooltip. */}
+                  <FhrAsymmetryNote results={result.results} />
+
+                  {/* §8.3 — before the user leaves for the portal. */}
+                  <ClawbackGuard result={winner} />
+
+                  {/* §8.2 */}
+                  <PriceMatchPanel
+                    result={winner}
+                    hasCompetitor={context.competitorBaseCents !== null}
+                  />
+
+                  {/* §3.5 — a fork, never additive. */}
+                  {result.brg ? <BrgFork brg={result.brg} winner={winner} /> : null}
+
+                  {/* §8.7 — only on the authoritative result, which includes it. */}
+                  <SensitivityPanel outcome={result} />
+
+                  {/* §3.7 */}
+                  <WarningList
+                    warnings={[
+                      ...result.warnings,
+                      ...result.results.flatMap((r) => r.warnings),
+                    ]}
+                  />
+
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="primary"
+                        loading={persistence.state === 'saving'}
+                        disabled={!canPersist(checkIn, checkOut)}
+                        onClick={() => void persistence.save(saveInput)}
+                      >
+                        {persistence.comparisonId ? 'Saved' : 'Save comparison'}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        loading={persistence.state === 'saving'}
+                        disabled={!canPersist(checkIn, checkOut)}
+                        onClick={() => void persistence.markAsBooked(saveInput, winner)}
+                      >
+                        Mark as booked
+                      </Button>
+                      <Button variant="ghost" onClick={() => exportComparison(result)}>
+                        Export
+                      </Button>
+                      {optimistic ? (
+                        <span className="text-xs text-text-muted">Confirming with the server…</span>
+                      ) : null}
+                    </div>
+
+                    {/* A disabled button with no reason is a dead end. §13.1:
+                        name the thing and the consequence in the same sentence. */}
+                    {!canPersist(checkIn, checkOut) ? (
+                      <p className="text-xs text-text-muted">
+                        Add check-in and check-out dates to save this comparison or record a
+                        booking — both are stored against the stay.
+                      </p>
+                    ) : null}
+
+                    {persistence.error ? (
+                      <p role="alert" className="text-xs text-text-primary">
+                        {persistence.error}
+                      </p>
+                    ) : null}
+
+                    {/* Visible confirmation only — the announcement goes through
+                        the single live region above, so nothing competes. */}
+                    {persistence.comparisonId && persistence.state === 'saved' ? (
+                      <p className="text-xs text-text-muted">
+                        Saved. Recording a booking on a prepaid Edit or Chase Travel rate opens a
+                        price-match claim with a 24-hour deadline.
+                      </p>
                     ) : null}
                   </div>
 
-                  {/* A disabled button with no reason is a dead end. §13.1:
-                      name the thing and the consequence in the same sentence. */}
-                  {!canPersist(checkIn, checkOut) ? (
-                    <p className="text-xs text-text-muted">
-                      Add check-in and check-out dates to save this comparison or record a
-                      booking — both are stored against the stay.
-                    </p>
-                  ) : null}
-
-                  {persistence.error ? (
-                    <p role="alert" className="text-xs text-text-primary">
-                      {persistence.error}
-                    </p>
-                  ) : null}
-
-                  {/* Visible confirmation only — the announcement goes through
-                      the single live region above, so nothing competes. */}
-                  {persistence.comparisonId && persistence.state === 'saved' ? (
-                    <p className="text-xs text-text-muted">
-                      Saved. Recording a booking on a prepaid Edit or Chase Travel rate opens a
-                      price-match claim with a 24-hour deadline.
-                    </p>
-                  ) : null}
-                </div>
-
-                <Disclaimer />
-              </>
-            ) : null}
-          </div>
-        )}
-      </section>
+                  <Disclaimer />
+                </>
+              ) : null}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

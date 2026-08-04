@@ -15,10 +15,25 @@ export interface AuthUserRecord {
 
 export interface AuthRepository {
   findUserByEmail(email: string): Promise<AuthUserRecord | null>;
-  createVerificationToken(identifier: string, token: string, expires: Date): Promise<void>;
+  /**
+   * Returns the existing user for this email, creating one first if none
+   * exists. This is the entirety of sign-up: magic-link auth means an email
+   * address *is* an account, and requiring some separate registration step
+   * would only add a screen — there is no password or profile to collect
+   * (§12). Idempotent under concurrent calls for the same address (the
+   * `users.email` unique constraint is the arbiter).
+   */
+  findOrCreateUserByEmail(email: string): Promise<AuthUserRecord>;
+  /**
+   * Stores the *digest* of a single-use token (`digestToken` in
+   * `src/lib/auth/tokenDigest.ts`) — never the raw value, which exists only
+   * inside the emailed link.
+   */
+  createVerificationToken(identifier: string, tokenDigest: string, expires: Date): Promise<void>;
   /**
    * Deletes the token (single-use, whether or not it turns out to be valid)
-   * and reports whether it was found and not yet expired.
+   * and reports whether it was found and not yet expired. Takes the digest,
+   * matching what `createVerificationToken` stored.
    */
-  consumeVerificationToken(identifier: string, token: string, now: Date): Promise<boolean>;
+  consumeVerificationToken(identifier: string, tokenDigest: string, now: Date): Promise<boolean>;
 }

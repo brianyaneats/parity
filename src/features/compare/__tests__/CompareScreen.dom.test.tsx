@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { CompareScreen, type PropertyOption } from '../CompareScreen';
+import { CompareScreen, type CardVisibility, type PropertyOption } from '../CompareScreen';
 import type { BucketAvailabilitySnapshot } from '@/domain/credit/CreditBucketResolution';
 import { cents } from '@/domain/shared/cents';
 
@@ -30,6 +30,15 @@ Element.prototype.scrollIntoView ??= () => {};
 // for this exact action.
 vi.mock('@/features/properties/actions', () => ({ savePropertyOverride: vi.fn() }));
 
+// `OnboardingBanner` (rendered when `showOnboarding` is true) pulls in its own
+// Server Actions and `useRouter` — mocked for the same reason as above, plus
+// `next/navigation` so mounting it doesn't require an app router context.
+vi.mock('../onboardingActions', () => ({
+  createSampleComparison: vi.fn(),
+  dismissOnboarding: vi.fn(),
+}));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+
 afterEach(cleanup);
 
 const BUCKETS: BucketAvailabilitySnapshot = {
@@ -56,13 +65,17 @@ const PROPERTIES: readonly PropertyOption[] = [
   property({ id: 'dining-1', name: 'Dining Hotel', inEdit: true, propertyCreditKind: 'DINING' }),
 ];
 
-function renderScreen() {
+function renderScreen(
+  over: { cardVisibility?: CardVisibility; showOnboarding?: boolean } = {},
+) {
   return render(
     <CompareScreen
       properties={PROPERTIES}
       initialBucketAvailability={BUCKETS}
       bucketAvailabilityKnown
       currentYear={2031}
+      cardVisibility={over.cardVisibility ?? { amex: true, edit: true }}
+      showOnboarding={over.showOnboarding ?? false}
     />,
   );
 }
@@ -184,5 +197,50 @@ describe('CompareScreen — Defect E: assumeYear reaches the paste parser', () =
     // only pass if `CompareScreen` actually threaded its `currentYear` prop
     // into `PasteRateBlock`'s `assumeYear`, not some ambient `new Date()`.
     expect(await screen.findByText('2031-09-01')).toBeInTheDocument();
+  });
+});
+
+describe('CompareScreen — §7.3 onboarding banner', () => {
+  it('renders the welcome banner above the form when showOnboarding is true', () => {
+    renderScreen({ showOnboarding: true });
+    expect(screen.getByText(/60 seconds/)).toBeInTheDocument();
+  });
+
+  it('renders nothing when showOnboarding is false', () => {
+    renderScreen({ showOnboarding: false });
+    expect(screen.queryByText(/60 seconds/)).not.toBeInTheDocument();
+  });
+});
+
+describe('CompareScreen — honest cards gating (Feature B, item 3)', () => {
+  it('shows both statement-credit toggles when nothing is configured', async () => {
+    const user = userEvent.setup();
+    renderScreen({ cardVisibility: { amex: true, edit: true } });
+    await openAssumptions(user);
+
+    expect(screen.getByLabelText('Amex $300 hotel credit still available')).toBeInTheDocument();
+    expect(screen.getByLabelText('Chase $250 Edit credit still available')).toBeInTheDocument();
+    expect(screen.queryByText(/Cards you don.t hold are hidden/)).not.toBeInTheDocument();
+  });
+
+  it('hides the Amex toggle and shows the settings hint when only CSR is configured', async () => {
+    const user = userEvent.setup();
+    renderScreen({ cardVisibility: { amex: false, edit: true } });
+    await openAssumptions(user);
+
+    expect(screen.queryByLabelText('Amex $300 hotel credit still available')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Chase $250 Edit credit still available')).toBeInTheDocument();
+    expect(screen.getByText(/Cards you don.t hold are hidden/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+  });
+
+  it('hides both toggles when neither Amex nor CSR is configured', async () => {
+    const user = userEvent.setup();
+    renderScreen({ cardVisibility: { amex: false, edit: false } });
+    await openAssumptions(user);
+
+    expect(screen.queryByLabelText('Amex $300 hotel credit still available')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Chase $250 Edit credit still available')).not.toBeInTheDocument();
+    expect(screen.getByText(/Cards you don.t hold are hidden/)).toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Card, Input } from '@/components/ui';
+import { useSignOut } from '@/components/layout/SignOutButton';
 
 /**
  * Data export and account deletion — §12, non-negotiable.
@@ -99,6 +100,8 @@ export function AccountDataSection({
         </p>
       </div>
 
+      {signedIn ? <SessionRow email={email} /> : null}
+
       <div className="flex flex-col gap-2">
         <h3 className="text-h3 text-text-primary">Export everything</h3>
         <p className="text-sm text-text-secondary">
@@ -182,5 +185,24 @@ export function AccountDataSection({
         </p>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * The tap-only path out. The sidebar's sign-out control is hidden below `sm`
+ * and the command palette needs a keyboard, so without this row a phone user
+ * had no way to end their session at all.
+ */
+function SessionRow({ email }: { email: string }) {
+  const { signOut, pending } = useSignOut();
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-3">
+      <p className="text-sm text-text-secondary">
+        Signed in as <span className="font-medium text-text-primary">{email}</span>
+      </p>
+      <Button variant="secondary" size="sm" onClick={signOut} loading={pending}>
+        Sign out
+      </Button>
+    </div>
   );
 }

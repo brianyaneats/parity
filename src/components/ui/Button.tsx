@@ -18,8 +18,10 @@ import { FOCUS_RING, PRESS_TRANSITION } from './_shared';
  */
 const buttonVariants = cva(
   cn(
-    'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md',
-    'text-sm font-medium disabled:pointer-events-none disabled:opacity-50',
+    // Pill shape + semibold label: the measured system's interactive
+    // signature (buttons, search, chips all round fully).
+    'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-pill',
+    'text-sm font-semibold disabled:pointer-events-none disabled:opacity-50',
     PRESS_TRANSITION,
     'active:scale-[0.98]',
     FOCUS_RING,
@@ -33,8 +35,8 @@ const buttonVariants = cva(
         destructive: 'bg-status-critical text-status-ink hover:opacity-90',
       },
       size: {
-        sm: 'h-8 px-3 text-xs',
-        md: 'h-10 px-4 text-sm',
+        sm: 'h-8 px-4 text-xs',
+        md: 'h-10 px-5 text-sm',
       },
     },
     defaultVariants: { variant: 'primary', size: 'md' },

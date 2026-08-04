@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Logger } from '@/infrastructure/observability/Logger';
+import { digestToken } from '@/lib/auth/tokenDigest';
 import type { MagicLinkInput } from '@/lib/validation/auth';
 import type { AuthRepository } from '@/application/ports/AuthRepository';
 import type { Notifier } from '@/application/ports/Notifier';
@@ -59,13 +60,15 @@ const realSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Ma
  * exact path with `{ email }`.
  *
  * "It must respond identically whether or not the account exists, to avoid
- * account enumeration." `LoginForm.tsx`'s own copy already says the quiet
- * part out loud — "If an account exists for {email}, a sign-in link is on its
- * way" — so an unknown address takes the *same code path length* here (this
- * use case still runs, still returns `void`, still logs one line) but simply
- * never reaches `notifier.send`. The HTTP response is identical either way;
- * see `MIN_RESPONSE_FLOOR_MS` above for how the *timing* is also made
- * indistinguishable, which an earlier version of this file did not do.
+ * account enumeration." This build resolves that a stronger way than hiding
+ * the difference: it removes the difference. An unknown address is signed
+ * up on the spot (`findOrCreateUserByEmail`) and gets the same link a known
+ * one gets — magic-link auth means an email address *is* an account, so
+ * there is no separate registration flow, no "no such user" branch to
+ * disguise, and nothing for a prober to learn. The HTTP response is
+ * identical either way; see `MIN_RESPONSE_FLOOR_MS` above for how the
+ * *timing* stays uniform too (creation is a fast local insert, well under
+ * the floor).
  *
  * **Durable send budget (security-audit BLOCKING #1).** `enforceIpRateLimit`
  * in `route()` bounds one caller's request *rate*; it does not bound the
@@ -105,12 +108,6 @@ export class RequestMagicLinkUseCase extends CommandUseCase<MagicLinkInput, void
   }
 
   private async attemptSend(input: MagicLinkInput, ctx: ExecutionContext, logger: Logger): Promise<void> {
-    const user = await this.auth.findUserByEmail(input.email);
-    if (!user) {
-      logger.info('magic link requested for an unrecognised address — no email sent');
-      return;
-    }
-
     // Fail closed rather than emailing a link that resolves to nothing.
     // Outside production this still falls back to localhost — see
     // `RequestMagicLinkUseCase.test.ts` and `.env.example` — so a clean
@@ -124,20 +121,33 @@ export class RequestMagicLinkUseCase extends CommandUseCase<MagicLinkInput, void
     }
     const baseUrl = authUrl || 'http://localhost:3000';
 
+    // The budget check comes *before* account creation so a bombing attempt
+    // can't mass-manufacture user rows either: past three requests a day per
+    // address, nothing below this line runs.
     const decision = await this.emailBudget.reserveSend(input.email, ctx.now, this.globalDailyLimit);
     if (!decision.allowed) {
       // Never surfaced to the caller — see the class doc comment. This is
       // the one place an operator can see the budget was actually hit.
       logger.warn('magic link suppressed by the email send budget', {
-        userId: user.id,
         reason: decision.reason,
       });
       return;
     }
 
+    // Sign-up *is* this line. An unknown address gets a user row and then the
+    // exact same link a known one gets — there is no separate registration
+    // flow to build, and (with the response floor above) no observable
+    // difference between "your first visit" and "your fiftieth" for an
+    // attacker probing which addresses already have accounts.
+    const user = await this.auth.findOrCreateUserByEmail(input.email);
+
     const token = randomUUID();
+    const tokenDigest = digestToken(token);
     const expires = new Date(ctx.now.getTime() + MAGIC_LINK_TTL_MS);
-    await this.auth.createVerificationToken(input.email, token, expires);
+    // Digest at rest: the raw token exists only inside the emailed link. A
+    // read of `verification_tokens` (or of these logs) yields nothing a
+    // browser can sign in with.
+    await this.auth.createVerificationToken(input.email, tokenDigest, expires);
 
     const link = `${baseUrl}/api/auth/callback?${new URLSearchParams({ email: input.email, token }).toString()}`;
 
@@ -147,7 +157,10 @@ export class RequestMagicLinkUseCase extends CommandUseCase<MagicLinkInput, void
       text:
         `Sign in: ${link}\n\n` +
         'This link works once and expires in 15 minutes. If you did not request it, ignore this email.',
-      idempotencyKey: `magic-link:${input.email}:${token}`,
+      // A digest prefix, never the raw token: `LoggingNotifier` prints this
+      // key verbatim whenever RESEND_API_KEY is unset, and an idempotency key
+      // only needs to be unique per message, not reversible.
+      idempotencyKey: `magic-link:${input.email}:${tokenDigest.slice(0, 16)}`,
     });
 
     logger.info('magic link issued', { userId: user.id });

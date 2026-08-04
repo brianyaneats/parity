@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { bookings, comparisons, watchlist } from '../schema';
 import { CHANNEL_DEFINITIONS } from '@/domain/rules/channels.rules';
@@ -26,8 +26,11 @@ import type { WatchlistBookingRow } from '@/features/watchlist/types';
  * to `CHANNEL_DEFINITIONS[channel].typicallyPrepaid` for exactly the same
  * reason: `WatchlistScreen`'s `isReshoppable` check does not read `prepaid`
  * at all, so the fallback is inert here too.
+ *
+ * `userId` is required — the optional-with-unfiltered-fallback version of this
+ * signature is how `/watchlist` once served every user's bookings to anyone.
  */
-export async function listWatchlistBookings(userId?: string): Promise<WatchlistBookingRow[]> {
+export async function listWatchlistBookings(userId: string): Promise<WatchlistBookingRow[]> {
   const rows = await db
     .select({
       bookingId: bookings.id,
@@ -56,7 +59,7 @@ export async function listWatchlistBookings(userId?: string): Promise<WatchlistB
     .from(watchlist)
     .innerJoin(bookings, eq(watchlist.bookingId, bookings.id))
     .leftJoin(comparisons, eq(bookings.comparisonId, comparisons.id))
-    .where(and(eq(watchlist.active, true), userId ? eq(watchlist.userId, userId) : sql`true`))
+    .where(and(eq(watchlist.active, true), eq(watchlist.userId, userId)))
     .orderBy(asc(watchlist.nextCheckAt));
 
   return rows.map((row) => ({

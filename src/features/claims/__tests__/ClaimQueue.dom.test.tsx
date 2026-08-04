@@ -1,11 +1,16 @@
 import * as React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ClaimQueue, type ClaimQueueRow } from '../ClaimQueue';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: pushMock }) }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  pushMock.mockReset();
+});
 
 const NOW = new Date('2026-07-27T12:00:00Z');
 const HOUR = 60 * 60 * 1000;
@@ -71,9 +76,14 @@ describe('<ClaimQueue /> — §7.4 the claim queue', () => {
     expect(link).toHaveAttribute('href', '/claims/far-out-open');
   });
 
-  it('renders the empty state with a useful message when there are no claims', () => {
+  it('renders the empty state with a useful message and an action back to /compare when there are no claims', async () => {
+    const user = userEvent.setup();
     render(<ClaimQueue rows={[]} now={NOW} />);
-    expect(screen.getByText(/no claims yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/no claim windows open/i)).toBeInTheDocument();
+
+    const action = screen.getByRole('button', { name: 'Compare a stay' });
+    await user.click(action);
+    expect(pushMock).toHaveBeenCalledWith('/compare');
   });
 
   it('renders the error state with a retry action', () => {

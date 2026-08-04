@@ -76,7 +76,7 @@ test.describe('Claim lifecycle', () => {
   // too, like its siblings, removes that specific failure — see
   // `.github/workflows/ci.yml`'s `e2e` job comment for why this is a real
   // improvement rather than a complete fix of every cross-file reset race.
-  test.beforeAll(resetDemoData);
+  test.beforeAll(() => resetDemoData());
 
   // This flow drives the full comparator UI, saves, books, then walks the
   // ten-item claim kit — several times the work of any other flow. The

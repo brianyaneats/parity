@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RequestMagicLinkUseCase, MIN_RESPONSE_FLOOR_MS } from './RequestMagicLinkUseCase';
 import { InMemoryAuthRepository, InMemoryEmailBudgetRepository, FakeNotifier } from '../testing/fakes';
+import { digestToken } from '@/lib/auth/tokenDigest';
 import {
   RECIPIENT_DAILY_EMAIL_LIMIT,
   RECIPIENT_EMAIL_COOLDOWN_MS,
@@ -68,8 +69,8 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe('unknown address — no send, budget untouched', () => {
-  it('logs and returns without sending, creating a token, or spending any budget', async () => {
+describe('unknown address — signs up and sends', () => {
+  it('creates a user on first contact and sends the same link a known address gets', async () => {
     const auth = new InMemoryAuthRepository([KNOWN_USER]);
     const notifier = new FakeNotifier();
     const budget = new InMemoryEmailBudgetRepository();
@@ -85,9 +86,70 @@ describe('unknown address — no send, budget untouched', () => {
 
     await useCase.execute({ email: 'nobody@parity.local' }, ctx('2026-08-02T12:00:00Z'));
 
-    expect(notifier.sent).toHaveLength(0);
-    expect(auth.createdTokens).toHaveLength(0);
-    expect(budget.globalCount('2026-08-02')).toBe(0);
+    // Sign-up *is* the magic-link request: the address now has a user row,
+    // a token, an email on its way, and a budget charge — indistinguishable
+    // from the known-address flow by construction, not by disguise.
+    expect(await auth.findUserByEmail('nobody@parity.local')).not.toBeNull();
+    expect(notifier.sent).toHaveLength(1);
+    expect(notifier.sent[0]?.to).toBe('nobody@parity.local');
+    expect(auth.createdTokens).toHaveLength(1);
+    expect(budget.recipientCount('nobody@parity.local', '2026-08-02')).toBe(1);
+    expect(budget.globalCount('2026-08-02')).toBe(1);
+  });
+
+  it('is idempotent on the user row: a second request reuses the account', async () => {
+    const auth = new InMemoryAuthRepository();
+    const notifier = new FakeNotifier();
+    const budget = new InMemoryEmailBudgetRepository();
+    const { sleep } = fakeSleep();
+    const useCase = new RequestMagicLinkUseCase(
+      deps(),
+      auth,
+      notifier,
+      budget,
+      DEFAULT_GLOBAL_DAILY_EMAIL_LIMIT,
+      sleep,
+    );
+
+    await useCase.execute({ email: 'new@parity.local' }, ctx('2026-08-02T12:00:00Z'));
+    const first = await auth.findUserByEmail('new@parity.local');
+    // Past the 10-minute per-recipient cooldown, so the second send is allowed.
+    await useCase.execute({ email: 'new@parity.local' }, ctx('2026-08-02T12:11:00Z'));
+    const second = await auth.findUserByEmail('new@parity.local');
+
+    expect(first).not.toBeNull();
+    expect(second?.id).toBe(first?.id);
+    expect(notifier.sent).toHaveLength(2);
+  });
+});
+
+describe('token storage — digest at rest', () => {
+  it('stores the SHA-256 digest, never the raw token from the link', async () => {
+    const auth = new InMemoryAuthRepository([KNOWN_USER]);
+    const notifier = new FakeNotifier();
+    const budget = new InMemoryEmailBudgetRepository();
+    const { sleep } = fakeSleep();
+    const useCase = new RequestMagicLinkUseCase(
+      deps(),
+      auth,
+      notifier,
+      budget,
+      DEFAULT_GLOBAL_DAILY_EMAIL_LIMIT,
+      sleep,
+    );
+
+    await useCase.execute({ email: KNOWN_EMAIL }, ctx('2026-08-02T12:00:00Z'));
+
+    const stored = auth.createdTokens[0]?.token;
+    const link = notifier.sent[0]?.text ?? '';
+    const rawToken = new URL(link.match(/https?:\/\/\S+/)?.[0] ?? '').searchParams.get('token');
+
+    expect(rawToken).toBeTruthy();
+    // 64 lowercase hex chars — a SHA-256 digest, not a UUID.
+    expect(stored).toMatch(/^[0-9a-f]{64}$/);
+    expect(stored).toBe(digestToken(rawToken as string));
+    // The idempotency key must not leak the raw token into logs either.
+    expect(notifier.sent[0]?.idempotencyKey).not.toContain(rawToken);
   });
 });
 

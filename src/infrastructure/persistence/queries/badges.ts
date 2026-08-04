@@ -24,7 +24,7 @@ export interface BadgeCounts {
 }
 
 export async function countUrgentBadges(
-  userId?: string,
+  userId: string,
   now: Date = new Date(),
 ): Promise<BadgeCounts> {
   const horizon = addHours(now, 24);
@@ -39,7 +39,7 @@ export async function countUrgentBadges(
           inArray(claims.status, ['ELIGIBLE', 'PREPARING']),
           lte(claims.deadlineAt, horizon),
           gte(claims.deadlineAt, now),
-          ...(userId ? [eq(claims.userId, userId)] : []),
+          eq(claims.userId, userId),
         ),
       ),
 
@@ -55,7 +55,7 @@ export async function countUrgentBadges(
             toIsoDate(new Date(now.getTime() + BUCKET_CRITICAL_DAYS * 86_400_000)),
           ),
           sql`${creditBuckets.consumedCents} < ${creditBuckets.faceCents}`,
-          ...(userId ? [eq(creditBuckets.userId, userId)] : []),
+          eq(creditBuckets.userId, userId),
         ),
       ),
   ]);

@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import { createLogger } from '@/infrastructure/observability/Logger';
 import { ApiError } from '@/lib/api/errors';
 import { constantTimeEqual } from './constantTimeEqual';
+import { SESSION_COOKIE } from './session-constants';
 
 /**
  * Session access.
@@ -33,7 +34,15 @@ export interface Session {
   readonly email: string;
 }
 
-export const SESSION_COOKIE = 'parity-session';
+/**
+ * How long an issued session stays valid. The cookie's `maxAge` matches, but
+ * only this claim is enforceable: `maxAge` asks the browser to discard the
+ * cookie, `exp` is checked server-side on every decode — a captured cookie
+ * value goes stale after this long no matter who is replaying it.
+ */
+export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+export { SESSION_COOKIE };
 
 /**
  * Only used when `AUTH_SECRET` is unset outside production. It is public —
@@ -99,10 +108,13 @@ export async function requireUser(): Promise<Session> {
 
 /**
  * Returns `null` for any of: no `AUTH_SECRET` in production, a cookie that
- * isn't exactly `payload.signature`, a signature that doesn't match, or a
- * payload that isn't valid base64url JSON shaped like a `Session`. A
- * malformed or forged cookie is an unauthenticated request, not a server
- * error.
+ * isn't exactly `payload.signature`, a signature that doesn't match, a
+ * payload that isn't valid base64url JSON shaped like a `Session`, or an
+ * `exp` claim that is missing, malformed, or in the past. A malformed or
+ * forged cookie is an unauthenticated request, not a server error — and so
+ * is an expired one: sessions used to carry no expiry at all, which made
+ * `maxAge` (a politeness the browser is asked to observe) the only limit on
+ * how long a stolen cookie value worked.
  *
  * Exported (alongside `encodeSession`) so the signing contract — round-trip,
  * tamper detection, wrong-secret rejection — is testable directly, without
@@ -128,7 +140,8 @@ export function decodeSession(raw: string): Session | null {
       'userId' in decoded &&
       typeof (decoded as { userId: unknown }).userId === 'string'
     ) {
-      const value = decoded as { userId: string; email?: unknown };
+      const value = decoded as { userId: string; email?: unknown; exp?: unknown };
+      if (typeof value.exp !== 'number' || value.exp * 1000 <= Date.now()) return null;
       return {
         userId: value.userId,
         email: typeof value.email === 'string' ? value.email : '',
@@ -153,6 +166,11 @@ export function encodeSession(session: Session): string {
     throw new Error('Cannot issue a session: AUTH_SECRET is not configured in production.');
   }
 
-  const payload = Buffer.from(JSON.stringify(session), 'utf8').toString('base64url');
+  const claims = {
+    userId: session.userId,
+    email: session.email,
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+  };
+  const payload = Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url');
   return `${payload}.${sign(payload, secret)}`;
 }

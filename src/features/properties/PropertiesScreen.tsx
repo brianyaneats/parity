@@ -8,6 +8,7 @@ import {
   Card,
   CurrencyInput,
   DataTable,
+  EmptyState,
   Input,
   Select,
   Toggle,
@@ -248,91 +249,100 @@ export function PropertiesScreen({ properties: initialProperties, signedIn }: Pr
         ) : null}
       </header>
 
-      <Input
-        label="Search properties"
-        hideLabel
-        placeholder="Search by name or city…"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        containerClassName="max-w-sm"
-      />
-
-      {editingProperty && draft ? (
-        <Card className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-h3 text-text-primary">Editing {editingProperty.name}</h2>
-            <Button variant="ghost" size="sm" onClick={cancelEdit}>
-              Cancel
-            </Button>
-          </div>
-
-          <Select
-            label="Chain brand"
-            value={draft.brand}
-            onChange={(value) => setDraft({ ...draft, brand: value as BrandOrNone })}
-            options={BRAND_OPTIONS}
+      {properties.length === 0 ? (
+        <EmptyState
+          message="No properties saved. Add one from the compare screen, or browse the seeded set."
+          action={{ label: 'Compare a stay', onClick: () => router.push('/compare') }}
+        />
+      ) : (
+        <>
+          <Input
+            label="Search properties"
+            hideLabel
+            placeholder="Search by name or city…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            containerClassName="max-w-sm"
           />
 
-          <div className="flex flex-wrap gap-4">
-            <Toggle
-              label="Fine Hotels + Resorts"
-              checked={draft.inFhr}
-              onCheckedChange={(checked) => setDraft({ ...draft, inFhr: checked })}
-            />
-            <Toggle
-              label="The Hotel Collection"
-              checked={draft.inThc}
-              onCheckedChange={(checked) => setDraft({ ...draft, inThc: checked })}
-            />
-            <Toggle
-              label="The Edit"
-              checked={draft.inEdit}
-              onCheckedChange={(checked) => setDraft({ ...draft, inEdit: checked })}
-            />
-          </div>
+          {editingProperty && draft ? (
+            <Card className="flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-h3 text-text-primary">Editing {editingProperty.name}</h2>
+                <Button variant="ghost" size="sm" onClick={cancelEdit}>
+                  Cancel
+                </Button>
+              </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <CurrencyInput
-              label="Property credit face value"
-              value={draft.propertyCreditFaceCents}
-              onChange={(cents) => setDraft({ ...draft, propertyCreditFaceCents: cents })}
-            />
-            <Select
-              label="Credit kind"
-              value={draft.propertyCreditKind}
-              onChange={(value) => setDraft({ ...draft, propertyCreditKind: value as PropertyCreditKind })}
-              options={CREDIT_KIND_OPTIONS}
-              hint={PROPERTY_CREDIT_KIND_HINTS[draft.propertyCreditKind]}
-            />
-          </div>
+              <Select
+                label="Chain brand"
+                value={draft.brand}
+                onChange={(value) => setDraft({ ...draft, brand: value as BrandOrNone })}
+                options={BRAND_OPTIONS}
+              />
 
-          {saveError ? (
-            <p role="alert" className="text-sm text-status-critical">
-              {saveError}
-            </p>
+              <div className="flex flex-wrap gap-4">
+                <Toggle
+                  label="Fine Hotels + Resorts"
+                  checked={draft.inFhr}
+                  onCheckedChange={(checked) => setDraft({ ...draft, inFhr: checked })}
+                />
+                <Toggle
+                  label="The Hotel Collection"
+                  checked={draft.inThc}
+                  onCheckedChange={(checked) => setDraft({ ...draft, inThc: checked })}
+                />
+                <Toggle
+                  label="The Edit"
+                  checked={draft.inEdit}
+                  onCheckedChange={(checked) => setDraft({ ...draft, inEdit: checked })}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <CurrencyInput
+                  label="Property credit face value"
+                  value={draft.propertyCreditFaceCents}
+                  onChange={(cents) => setDraft({ ...draft, propertyCreditFaceCents: cents })}
+                />
+                <Select
+                  label="Credit kind"
+                  value={draft.propertyCreditKind}
+                  onChange={(value) => setDraft({ ...draft, propertyCreditKind: value as PropertyCreditKind })}
+                  options={CREDIT_KIND_OPTIONS}
+                  hint={PROPERTY_CREDIT_KIND_HINTS[draft.propertyCreditKind]}
+                />
+              </div>
+
+              {saveError ? (
+                <p role="alert" className="text-sm text-status-critical">
+                  {saveError}
+                </p>
+              ) : null}
+
+              <div>
+                <Button variant="primary" loading={saving} disabled={!signedIn} onClick={() => void handleSave()}>
+                  Save as my override
+                </Button>
+              </div>
+            </Card>
           ) : null}
 
-          <div>
-            <Button variant="primary" loading={saving} disabled={!signedIn} onClick={() => void handleSave()}>
-              Save as my override
-            </Button>
-          </div>
-        </Card>
-      ) : null}
-
-      <DataTable
-        columns={columns}
-        rows={filtered}
-        getRowId={(row) => row.id}
-        sortKey={sortKey}
-        sortDirection={sortDirection}
-        onSortChange={(key, direction) => {
-          setSortKey(key);
-          setSortDirection(direction);
-        }}
-        emptyMessage={query.trim() === '' ? 'No properties found.' : 'No properties match your search.'}
-        caption="Properties"
-      />
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            getRowId={(row) => row.id}
+            sortKey={sortKey}
+            sortDirection={sortDirection}
+            onSortChange={(key, direction) => {
+              setSortKey(key);
+              setSortDirection(direction);
+            }}
+            emptyMessage="No properties match your search."
+            caption="Properties"
+          />
+        </>
+      )}
     </div>
   );
 }

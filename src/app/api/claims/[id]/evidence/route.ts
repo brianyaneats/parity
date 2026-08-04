@@ -7,13 +7,13 @@ import { RecordClaimEvidenceUseCase } from '@/application/usecases/RecordClaimEv
 import { DrizzleClaimRepository } from '@/infrastructure/persistence/repositories/DrizzleClaimRepository';
 import { DrizzleBookingRepository } from '@/infrastructure/persistence/repositories/DrizzleBookingRepository';
 import { DrizzleCompetingRateRepository } from '@/infrastructure/persistence/repositories/DrizzleCompetingRateRepository';
-import { LocalSignedUrlStorage } from '@/infrastructure/storage/LocalSignedUrlStorage';
+import { PostgresSignedUrlStorage } from '@/infrastructure/storage/PostgresSignedUrlStorage';
 
 /** `POST /api/claims/:id/evidence` — §5.2, §12. */
 const claimRepository = new DrizzleClaimRepository();
 const bookingRepository = new DrizzleBookingRepository();
 const competingRateRepository = new DrizzleCompetingRateRepository();
-const objectStorage = new LocalSignedUrlStorage();
+const objectStorage = new PostgresSignedUrlStorage();
 
 export const POST = route(
   async ({ request, logger, requestId }) => {

@@ -222,6 +222,11 @@ off with this entry rather than enabling it half-way and discovering in producti
 everything is blocked or nothing is protected. **This is a real deviation from §4.1 and the
 one item in Part 4 that is not done.** The fix is a follow-up migration adding a policy per
 table plus a `SET LOCAL app.user_id` in the transaction wrapper.
+**Amended 2026-08-03:** this entry's premise — "the query-layer filter is in place" — was
+found to be only half true: several list queries took `userId` as *optional* and read
+unfiltered when it was omitted, and the server-component pages omitted it. A compensating
+control that callers can skip is not a control; see D-152 for the incident and the fix that
+made the parameter unskippable. RLS itself remains the open follow-up.
 
 ### D-071 — Auth.js tables follow the adapter's shapes, not §4.1's universal `id` rule
 §4.2 names the Auth.js tables but gives them no DDL. §4.1's "every table gets a uuid `id`"
@@ -623,3 +628,139 @@ membership is unknown until set on `/properties` (§8.5). `CompareScreen`'s `sav
 both `seed-` and `local-` ids as "no real foreign key yet" and saves the comparison unlinked,
 named from the snapshot instead, rather than sending a bogus `propertyId` to `POST
 /api/comparisons`.
+
+### D-152 — The page tier bypassed the query-layer filter; the filter is now unskippable
+A 2026-08-02 security review found the worst kind of gap: `/trips`, `/ledger` and `/watchlist`
+called `listTrips()` / `listSavingsEvents()` / `listWatchlistBookings()` with no arguments,
+and those functions' optional `userId` fell back to an unfiltered read — every user's rows,
+served to anyone, signed in or not. `/claims` had the sibling bug
+(`.where(session ? … : undefined)`, and Drizzle treats `undefined` as "no WHERE"), and the
+three `[id]` detail pages fetched by UUID with no owner check at all. The API tier was scoped
+correctly throughout; the leak lived entirely in the server-component pages, which do not pass
+through `route()`.
+**Reason:** an optional scoping parameter makes "forgot to scope" compile, run, and render
+convincingly. Nothing in the type system distinguished the safe call from the leaking one.
+**Chosen:** make the parameter required and delete the fallbacks — the unscoped query no
+longer exists to be called. Every `(app)` page resolves the session itself (outside its
+try/catch, since `redirect()` throws) and passes `session.userId`; detail pages AND their
+queries take the owner id, so a wrong-owner UUID is indistinguishable from a missing one.
+Three layers now stack: `middleware.ts` (cookie-presence redirect — a router, not a guard;
+Edge runtime cannot verify HMACs from `node:crypto`), the `(app)` layout's `getSession()`
+gate, and the required parameter, which is the only layer that cannot be forgotten.
+
+### D-153 — Sign-up is the magic-link request itself
+`RequestMagicLinkUseCase` used to look up the address and silently bail if no user existed —
+correct anti-enumeration behavior, but combined with "nothing else ever inserts a `users`
+row," it meant no stranger could ever use a deployed instance at all. Sign-in existed;
+sign-up did not.
+**Reason:** magic-link auth means an email address *is* an account. A separate registration
+flow would collect nothing extra (no password, no profile — §12) and would necessarily
+introduce the "does this account exist yet" distinction that enumeration defenses then have
+to hide.
+**Chosen:** `findOrCreateUserByEmail` — an unknown address gets a user row and the same link
+a known one gets, atomically idempotent under the `users.email` unique constraint. The
+enumeration surface is removed rather than disguised: there is no "no such user" branch left
+to time. The email-budget check runs *before* creation, so a bombing run cannot
+mass-manufacture rows; the response floor (D-behavior in `MIN_RESPONSE_FLOOR_MS`) keeps
+timing uniform.
+
+### D-154 [OPEN] — Sessions now expire server-side; revocation is still cookie-deep only
+Sessions were signed but carried no expiry claim: the cookie's `maxAge` was the only limit,
+and `maxAge` is a request to the browser, not a property of the value — a captured cookie
+worked forever. There was also no way to log out.
+**Chosen:** an `exp` claim (30 days, `SESSION_TTL_SECONDS`) inside the signed payload,
+enforced in `decodeSession` — cookies without it (the old format) are rejected outright,
+which forcibly re-authenticates existing sessions once, deliberately. `POST /api/auth/logout`
+clears the cookie (POST, not GET — a GET logout is CSRF-by-prefetch). **Still open:** the
+value is stateless, so logout removes the browser's copy without revoking the value itself;
+`exp` bounds the exposure. True server-side revocation (the so-far-unused `sessions` table)
+remains the follow-up.
+
+### D-155 — Magic-link tokens are digested at rest
+`verification_tokens.token` stored the raw UUID the emailed link carries, and — worse — the
+raw token rode into the logs inside the notifier's `idempotencyKey` whenever `RESEND_API_KEY`
+was unset and `LoggingNotifier` printed the message instead of sending it. Anyone with read
+access to either could sign in as anyone mid-window.
+**Chosen:** store `sha256(token)` (`tokenDigest.ts`); the verify path digests before lookup;
+the idempotency key uses a digest prefix. Plain SHA-256 with no salt or work factor,
+deliberately: these are 122-bit random values with a 15-minute lifetime, not passwords —
+there is nothing to dictionary-attack, and the digest only needs to be one-way.
+
+### D-156 — CSP ships with `'unsafe-inline'` scripts rather than not shipping
+**Reason:** Next.js's own bootstrap and the flash-free theme snippet
+(`THEME_BOOTSTRAP_SCRIPT`) are inline scripts; a nonce-based policy requires per-request
+nonces threaded through `headers()` into every inline emission, which Next only supports via
+middleware-generated CSP — heavier machinery than this change should carry.
+**Chosen:** a real policy now — `default-src 'self'`, `connect-src 'self'` (the §12 promise
+that nothing phones out, now enforced by the browser too), `frame-ancestors 'none'`,
+`form-action 'self'`, img/font locked to self — accepting `script-src 'unsafe-inline'` until
+a nonce pass. A CSP that blocks exfiltration and embedding today beats a perfect one that
+stays on the backlog.
+
+### D-157 — `db:migrate` and `db:seed` load `.env` themselves
+The README's clean-clone sequence — `cp .env.example .env`, then `pnpm db:migrate` — failed
+on step 5 with "DATABASE_URL is not set": Next.js loads `.env` for the app, but nothing
+loaded it for a bare `tsx` script. The docs promised eight working commands and delivered
+seven.
+**Chosen:** a side-effect `load-env.ts` using Node's built-in `process.loadEnvFile()` —
+`engines` already floors at Node 22.13, so this costs zero dependencies. Exported shell
+variables still win (same precedence as Next); a missing `.env` is silently fine because CI
+sets real variables and has no file.
+
+### D-158 — The second design system: measured from airbnb.com, swapped in one file
+D-050's bet — every design value behind a token, "swapping to a different design system must
+be a single-file edit" — got its test on 2026-08-03 when the owner asked for a cleaner,
+Airbnb-inspired UI. The system was *measured*, not eyeballed: computed styles pulled from
+airbnb.com gave the palette (ink `#222` on white, rausch `#FF385C` with `#DA1249` as its
+pressed/deep step, `#DDDDDD` hairlines, `#F7F7F7` wells, warm sand `#F4F2EC`), the radii
+(8px inputs, 12px cards, pills for everything interactive), exactly four layered shadows,
+and the 28/22/16/14/12 type scale in weights 400–700.
+**Chosen:** rewrite `tokens.css` values under the *existing* token names (`--accent-lime`
+is now a historical name for "CTA fill"; a rename is mechanical follow-up), flip the app
+light-first (`:root` = light, `[data-theme='dark']` the override, bootstrap error-fallback
+`light`), and re-step any measured pair that misses WCAG AA for this app's denser text —
+raw rausch on white is 3.9:1, so text and CTA fills use the deep step at 5.9:1 and the raw
+hue is reserved for large figures. The typeface is the system stack — Airbnb's own fallback
+chain — because Cereal is proprietary and copying assets was never the assignment. Dark
+mode is re-authored as neutral charcoal (Airbnb ships no web dark mode to measure), same
+verification discipline. Status and data-viz hues are untouched: the CVD separation numbers
+are math, not taste, and survive the swap. Component changes: `Button` goes pill + semibold
+— the rest of the app restyled itself, which was D-050's whole promise.
+
+### D-159 — Claim evidence lives in Postgres, behind the same signed-URL contract
+The evidence flow minted signed upload URLs pointing at `/api/storage/upload` — a route that
+did not exist. The spec's shape (presigned PUT, §5.2) assumed a bucket this deployment does
+not have, and shipping a dead endpoint dressed as a working one is worse than either option
+below.
+**Chosen:** implement the route for real against a new `evidence_blobs` table (`bytea`, 5 MB
+cap, content-type allowlist shared as one constant between the mint schema and the upload
+route — the two layers previously disagreed, so a mint could succeed and the very next PUT
+422). The URL contract is unchanged and S3-shaped — `HMAC(key:exp:contentType:userId)`,
+verified constant-time, expiry checked after — so swapping Postgres for a real bucket later
+changes the storage adapter and nothing else. Reads require a session and return 404 for
+"missing" and "not yours" alike. A database is not a blob store at scale; at "screenshots
+attached to claims by one household," it is exactly one fewer external dependency.
+
+### D-160 — A command palette is the one overlay the modal ban permits
+§0.5 bans any modal that could have been an inline expansion. The ⌘K palette is a genuine
+global overlay: it belongs to no page section, exists only while summoned, and duplicates
+nothing an inline expansion could host. It ships (cmdk inside a Radix Dialog with a real
+focus trap) with navigation, theme, and sign-out commands; the sidebar advertises it with a
+muted `⌘K` hint. Sign-out itself is deliberately *not* a 9th mobile tab — a destructive
+account action does not belong in a navigation row — so the tap-only path lives on
+`/settings` ("Signed in as …" row), which the mobile tab bar now reaches directly.
+
+### D-161 — Sign-up-adjacent UX: the first run gets a banner, the cards setting gets teeth
+Two follow-ons from D-153 opening the door to strangers. First: a brand-new user landed on
+an empty `/compare` with no orientation at all. Now a zero-comparisons account (and only
+one that hasn't dismissed it) sees one inline banner — never a modal, §0.5 — explaining the
+sixty-second loop, with a "load a sample comparison" action that builds a clearly-labelled
+`Sample ·` DRAFT against a seeded global property, dated 60 days out so it never reads as a
+past stay. Second: the `/settings` cards section was fully built and read by nothing —
+add or remove a card and every screen still assumed Amex Platinum + CSR. The read side now
+exists (`listActiveCards`, required `userId`): configured cards gate which credit surfaces
+render on `/credits` and `/compare`, enforced where the engine `context` is built (not just
+at render, so a stale toggle can never leak a phantom credit into the math), with a visible
+"cards you don't hold are hidden" line so the gating is legible rather than mysterious.
+Zero cards configured keeps the both-cards default — the founding assumption, and what the
+demo account shows.

@@ -1,10 +1,16 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TripsScreen } from '../TripsScreen';
 import type { TripListItemView } from '../trips-types';
 
-afterEach(cleanup);
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
+
+afterEach(() => {
+  cleanup();
+  pushMock.mockReset();
+});
 
 const trip = (overrides: Partial<TripListItemView>): TripListItemView => ({
   id: 't1',
@@ -20,9 +26,14 @@ const trip = (overrides: Partial<TripListItemView>): TripListItemView => ({
 });
 
 describe('<TripsScreen /> — §7.8', () => {
-  it('renders a good empty state when there are no trips yet', () => {
+  it('renders a good empty state when there are no trips yet', async () => {
+    const user = userEvent.setup();
     render(<TripsScreen trips={[]} />);
     expect(screen.getByText(/no trips yet/i)).toBeInTheDocument();
+
+    const action = screen.getByRole('button', { name: 'Start a comparison' });
+    await user.click(action);
+    expect(pushMock).toHaveBeenCalledWith('/compare');
   });
 
   it('links each trip name to its detail page', () => {

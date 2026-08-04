@@ -48,7 +48,13 @@ describe('§7.1 route map — every screen exists', () => {
 });
 
 describe('§7.2 global shell', () => {
-  const shell = readFileSync(join(__dirname, 'components/layout/AppShell.tsx'), 'utf8');
+  // The shell is two modules since the command palette landed: AppShell.tsx
+  // renders, nav-items.ts declares (a leaf module both the shell and the
+  // palette import, breaking what would otherwise be a circular import).
+  // These §7.2 assertions are about the shell as a surface, so they read both.
+  const shell =
+    readFileSync(join(__dirname, 'components/layout/AppShell.tsx'), 'utf8') +
+    readFileSync(join(__dirname, 'components/layout/nav-items.ts'), 'utf8');
 
   it('links every sidebar destination §7.2 names', () => {
     for (const href of ['/compare', '/claims', '/credits', '/trips', '/watchlist', '/ledger']) {

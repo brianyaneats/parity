@@ -19,6 +19,7 @@ import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   char,
+  customType,
   date,
   index,
   integer,
@@ -816,3 +817,69 @@ export type NewEmailSendCounterRow = typeof emailSendCounters.$inferInsert;
 
 export type EmailSendDailyTotalRow = typeof emailSendDailyTotals.$inferSelect;
 export type NewEmailSendDailyTotalRow = typeof emailSendDailyTotals.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// evidence_blobs — Postgres-backed object storage for claim evidence
+// ---------------------------------------------------------------------------
+//
+// Not part of the spec's own §4.2 DDL, same footing as `notifications_sent`
+// and the `email_send_*` tables above: added to close a real defect rather
+// than translate a section of parity-build-spec.md. §12 asks for "private
+// object storage with signed, short-lived URLs" for claim screenshots.
+// `PostgresSignedUrlStorage` (`src/infrastructure/storage/`, née
+// `LocalSignedUrlStorage`) already minted that signed URL, but nothing ever
+// received the bytes it pointed at — `POST /api/storage/upload` did not
+// exist — so every evidence upload silently vanished after the client PUT it
+// to a 404. This table is the missing bucket, backed by Postgres rather than
+// a real object-storage provider for the same no-external-credentials
+// reason `email_send_*` above uses Postgres instead of a message queue or a
+// real Resend-side counter.
+//
+// Drizzle's pg-core ships column builders for text/integer/jsonb/etc. but no
+// binary one, hence the `customType` below rather than an import from
+// `drizzle-orm/pg-core`'s usual named exports. No `toDriver`/`fromDriver`
+// hook is needed beyond naming the SQL type: `postgres` (the driver
+// `db.ts` uses) already infers `bytea` (oid 17) for any `Uint8Array`/`Buffer`
+// parameter and parses a `bytea` result back into a `Buffer` on its own —
+// see `inferType`/`types.bytea` in the `postgres` package's own source.
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+// House rules from §4.1 apply: uuid `id`, `userId` FK `ON DELETE CASCADE`.
+// `id` is not left to insert-time `defaultRandom()`, though — the eventual
+// row's id is minted up front, at *signing* time, in
+// `PostgresSignedUrlStorage.createSignedUploadUrl`, and travels inside the
+// signed URL's own `key` (`<prefix>/<uuid>`) as its final path segment. The
+// `PUT` and `GET` handlers in `/api/storage/upload/route.ts` both recover
+// that same uuid back out of `key` (see that file), so signing, storing and
+// serving all agree on one identifier without a separate lookup column.
+//
+// No `updatedAt`: a blob is written once by the `PUT` handler and never
+// mutated afterward — the same reasoning `notifications_sent` and
+// `rule_flags` give above for omitting one on a write-once table.
+export const evidenceBlobs = pgTable('evidence_blobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  contentType: text('content_type').notNull(),
+  bytes: bytea('bytes').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Only this table's own `one` side is defined here, same choice
+// `notificationsSentRelations` makes above and for the same reason: the
+// plain `db.insert`/`db.select` calls `PostgresSignedUrlStorage` uses don't
+// need the reverse `many()` side, so `usersRelations` further up (existing
+// content this append-only addition leaves untouched) is not edited to add
+// one.
+export const evidenceBlobsRelations = relations(evidenceBlobs, ({ one }) => ({
+  user: one(users, { fields: [evidenceBlobs.userId], references: [users.id] }),
+}));
+
+export type EvidenceBlobRow = typeof evidenceBlobs.$inferSelect;
+export type NewEvidenceBlobRow = typeof evidenceBlobs.$inferInsert;

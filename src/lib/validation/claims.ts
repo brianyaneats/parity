@@ -54,8 +54,10 @@ export const claimEvidenceSchema = z.object({
   // size so the signer can constrain the presigned POST/PUT, and — when it
   // already has a competing rate captured — reuses that data to create one if
   // the claim doesn't have one yet (§5.2).
-  contentType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
-  fileSizeBytes: z.number().int().min(1).max(20_000_000),
+  contentType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'application/pdf']),
+  // Matches MAX_EVIDENCE_BYTES in PostgresSignedUrlStorage — the two layers
+  // must agree, or a mint succeeds and the very next PUT 422s.
+  fileSizeBytes: z.number().int().min(1).max(5 * 1024 * 1024),
   competingRate: z
     .object({
       siteDomain: z.string().trim().min(1).max(200),

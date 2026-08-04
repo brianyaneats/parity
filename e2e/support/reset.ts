@@ -14,12 +14,24 @@ const run = promisify(execFile);
  * offers.
  *
  * Runs as a child process rather than importing `db` directly so the test
- * runner never opens its own connection pool alongside the app server's.
+ * runner never opens its own connection pool alongside the app server's. The
+ * child (`reset-and-seed.ts`) holds a Postgres advisory lock across the whole
+ * delete+seed, so per-worker `beforeAll` stampedes serialize instead of
+ * corrupting each other — see its header for the full story.
+ *
+ * `skipIfFresherThanMs` is for read-only suites (visual regression, axe):
+ * they only need the fixture to exist in its seeded state, so once one worker
+ * has rebuilt it, sibling workers' resets become no-ops rather than rebuilds
+ * that race someone else's screenshot.
  */
-export async function resetDemoData(): Promise<void> {
+export async function resetDemoData(options?: {
+  readonly skipIfFresherThanMs?: number;
+}): Promise<void> {
   if (!process.env.DATABASE_URL) return;
-  await run('npx', ['tsx', 'e2e/support/reset-demo-data.ts'], { env: process.env });
-  await run('npx', ['tsx', 'src/infrastructure/persistence/seed/run-seed.ts'], {
-    env: process.env,
+  await run('npx', ['tsx', 'e2e/support/reset-and-seed.ts'], {
+    env: {
+      ...process.env,
+      PARITY_RESET_SKIP_FRESH_MS: String(options?.skipIfFresherThanMs ?? 0),
+    },
   });
 }

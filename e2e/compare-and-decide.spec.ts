@@ -37,7 +37,7 @@ import { resetDemoData } from './support/reset';
 test.describe('Compare and decide', () => {
   // Bookings consume credit buckets for real now, so an earlier spec can
   // change the figures this one asserts. Reset rather than depend on order.
-  test.beforeAll(resetDemoData);
+  test.beforeAll(() => resetDemoData());
 
   test('TC-01 through the UI: ranked order, exact net values, then save', async ({ page, context }) => {
     const tc01 = fixtureCase('TC-01');

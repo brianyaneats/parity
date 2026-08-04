@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { getSession } from '@/lib/auth/session';
 import { ClaimQueue, type ClaimQueueRow } from '@/features/claims/ClaimQueue';
 
 export const metadata = { title: 'Claims · Parity' };
@@ -20,7 +22,10 @@ export const metadata = { title: 'Claims · Parity' };
  * than just "nothing here."
  */
 export default async function ClaimsPage() {
-  const { rows, error } = await loadClaimQueue();
+  const session = await getSession();
+  if (!session) redirect('/login');
+
+  const { rows, error } = await loadClaimQueue(session.userId);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 lg:p-6">
@@ -35,18 +40,16 @@ export default async function ClaimsPage() {
   );
 }
 
-async function loadClaimQueue(): Promise<{ rows: readonly ClaimQueueRow[]; error?: string }> {
+async function loadClaimQueue(userId: string): Promise<{ rows: readonly ClaimQueueRow[]; error?: string }> {
   try {
-    const [{ db }, schema, drizzleOrm, { getSession }] = await Promise.all([
+    const [{ db }, schema, drizzleOrm] = await Promise.all([
       import('@/infrastructure/persistence/db'),
       import('@/infrastructure/persistence/schema'),
       import('drizzle-orm'),
-      import('@/lib/auth/session'),
     ]);
 
     const { claims, bookings, comparisons } = schema;
     const { eq, asc } = drizzleOrm;
-    const session = await getSession();
 
     const rows = await db
       .select({
@@ -61,7 +64,10 @@ async function loadClaimQueue(): Promise<{ rows: readonly ClaimQueueRow[]; error
       .from(claims)
       .innerJoin(bookings, eq(claims.bookingId, bookings.id))
       .leftJoin(comparisons, eq(bookings.comparisonId, comparisons.id))
-      .where(session ? eq(claims.userId, session.userId) : undefined)
+      // Never a conditional filter here: Drizzle treats `undefined` as "no
+      // WHERE at all," which once made the logged-out view a list of every
+      // user's claims. The page guarantees a session before this runs.
+      .where(eq(claims.userId, userId))
       .orderBy(asc(claims.deadlineAt))
       .limit(200);
 

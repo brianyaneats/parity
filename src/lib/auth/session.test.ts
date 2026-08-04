@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
-import { encodeSession, decodeSession, type Session } from './session';
+import { encodeSession, decodeSession, SESSION_TTL_SECONDS, type Session } from './session';
 
 /**
  * The session cookie used to be plain base64url JSON — anyone could mint
@@ -38,12 +38,32 @@ describe('encodeSession / decodeSession — signature round-trip', () => {
     expect(decodeSession(cookie)).toEqual(SESSION);
   });
 
-  it('produces a payload.signature shape', () => {
+  it('produces a payload.signature shape carrying an exp claim', () => {
     const cookie = encodeSession(SESSION);
     expect(cookie.split('.')).toHaveLength(2);
 
     const [payload] = splitCookie(cookie);
-    expect(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))).toEqual(SESSION);
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    expect(claims).toEqual({ ...SESSION, exp: expect.any(Number) });
+    // ~30 days out, in unix seconds — the enforced server-side expiry.
+    const secondsFromNow = claims.exp - Math.floor(Date.now() / 1000);
+    expect(secondsFromNow).toBeGreaterThan(SESSION_TTL_SECONDS - 60);
+    expect(secondsFromNow).toBeLessThanOrEqual(SESSION_TTL_SECONDS);
+  });
+
+  it('rejects an expired cookie even with a valid signature', () => {
+    const secret = process.env.AUTH_SECRET ?? 'parity-dev-session-secret';
+    const expired = { ...SESSION, exp: Math.floor(Date.now() / 1000) - 1 };
+    const payload = Buffer.from(JSON.stringify(expired), 'utf8').toString('base64url');
+    const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+    expect(decodeSession(`${payload}.${signature}`)).toBeNull();
+  });
+
+  it('rejects a signed cookie with no exp claim at all (the pre-expiry format)', () => {
+    const secret = process.env.AUTH_SECRET ?? 'parity-dev-session-secret';
+    const payload = Buffer.from(JSON.stringify(SESSION), 'utf8').toString('base64url');
+    const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+    expect(decodeSession(`${payload}.${signature}`)).toBeNull();
   });
 
   it('rejects a cookie with no signature at all', () => {

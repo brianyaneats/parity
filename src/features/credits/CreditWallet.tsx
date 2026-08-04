@@ -2,10 +2,12 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Card, StatTile, Button, EmptyState } from '@/components/ui';
 import { BucketMeter } from '@/components/credits/BucketMeter';
 import { CreditBucket, totalUnburnedCents, nearestExpiry } from '@/domain/credit/CreditBucket';
 import { CREDIT_BUCKET_DEFINITIONS, type CreditBucketDefinition } from '@/domain/rules/credit.rules';
+import type { CardKind } from '@/domain/rules/price-match.rules';
 import { cents } from '@/domain/shared/cents';
 import { formatCents, formatDays, formatNights } from '@/lib/format';
 import type { BucketRow, RoutableComparison } from './types';
@@ -28,6 +30,15 @@ export interface CreditWalletProps {
    * from the database — see `features/credits/fallback.ts`. The headline
    * math is correct either way; this only controls the disclosure note. */
   readonly isLive: boolean;
+  /**
+   * Honest cards gating — the `kind`s of cards the caller has told
+   * `/settings` they actually hold (`listActiveCards`). Empty means "nothing
+   * configured", which keeps today's founding assumption of showing both
+   * cards' sections — the same behaviour the seeded demo account has always
+   * shown. Once non-empty, only the section(s) for cards actually in this
+   * list render; see `CARD_ORDER`'s use below.
+   */
+  readonly activeCardKinds: readonly CardKind[];
 }
 
 const CARD_LABEL: Record<CreditBucketDefinition['card'], string> = {
@@ -42,8 +53,21 @@ export function CreditWallet({
   comparisons,
   todayIsoDate,
   isLive,
+  activeCardKinds,
 }: CreditWalletProps) {
   const router = useRouter();
+
+  // Honest cards gating (Feature B, item 2): both cards when nothing is
+  // configured, otherwise only the ones the caller actually holds. Computed
+  // from `CARD_ORDER` (not `activeCardKinds` directly) so the result stays in
+  // §7.5's declared Amex-then-CSR order regardless of which order the caller
+  // added their cards in, and so a configured card kind this screen has no
+  // section for (there are only two) simply contributes nothing rather than
+  // producing an unrenderable entry.
+  const configuredCards = new Set(activeCardKinds);
+  const visibleCards: readonly CreditBucketDefinition['card'][] =
+    configuredCards.size > 0 ? CARD_ORDER.filter((card) => configuredCards.has(card)) : CARD_ORDER;
+  const hidesACard = configuredCards.size > 0 && visibleCards.length < CARD_ORDER.length;
 
   // Reconstructed exactly once, here, at the server/client boundary — see
   // types.ts's `BucketRow` doc comment for why a class instance cannot be the
@@ -142,7 +166,17 @@ export function CreditWallet({
         </p>
       </Card>
 
-      {CARD_ORDER.map((card) => {
+      {hidesACard ? (
+        <p className="text-xs text-text-muted">
+          Cards you don&rsquo;t hold are hidden — manage in{' '}
+          <Link href="/settings" className="underline">
+            Settings
+          </Link>
+          .
+        </p>
+      ) : null}
+
+      {visibleCards.map((card) => {
         const list = byCard.get(card);
         if (!list || list.length === 0) return null;
         return (

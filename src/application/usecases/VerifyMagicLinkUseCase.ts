@@ -1,4 +1,5 @@
 import { ApiError } from '@/lib/api/errors';
+import { digestToken } from '@/lib/auth/tokenDigest';
 import type { AuthRepository } from '@/application/ports/AuthRepository';
 import { CommandUseCase, type ExecutionContext, type UseCaseDependencies } from '../shared/UseCase';
 
@@ -27,7 +28,10 @@ export class VerifyMagicLinkUseCase extends CommandUseCase<VerifyMagicLinkInput,
   }
 
   protected async handle(input: VerifyMagicLinkInput, ctx: ExecutionContext): Promise<VerifyMagicLinkOutput> {
-    const valid = await this.auth.consumeVerificationToken(input.email, input.token, ctx.now);
+    // The link carries the raw token; the table stores its digest — so the
+    // lookup digests first. See `tokenDigest.ts` for why plain SHA-256 is
+    // the right strength here.
+    const valid = await this.auth.consumeVerificationToken(input.email, digestToken(input.token), ctx.now);
     if (!valid) throw ApiError.unauthorized('This sign-in link is invalid or has expired.');
 
     const user = await this.auth.findUserByEmail(input.email);

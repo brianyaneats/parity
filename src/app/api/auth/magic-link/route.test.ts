@@ -27,10 +27,15 @@ vi.mock('@/lib/auth/session', () => ({
 // No real Postgres in this test tier (`component`, per package.json/CI) — a
 // fake repository keyed on the email itself, so one mock serves both the
 // known- and unknown-address cases a single test compares directly.
+// `findOrCreateUserByEmail` mirrors the real sign-up-on-request behavior:
+// an unknown address gets a user, same as production.
 vi.mock('@/infrastructure/persistence/repositories/DrizzleAuthRepository', () => ({
   DrizzleAuthRepository: class {
     async findUserByEmail(email: string) {
       return email === 'known@parity.local' ? { id: 'user-1', email } : null;
+    }
+    async findOrCreateUserByEmail(email: string) {
+      return email === 'known@parity.local' ? { id: 'user-1', email } : { id: 'user-new', email };
     }
     async createVerificationToken(): Promise<void> {}
     async consumeVerificationToken(): Promise<boolean> {

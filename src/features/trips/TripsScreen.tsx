@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { DataTable, type DataTableColumn, type SortDirection } from '@/components/ui';
+import { useRouter } from 'next/navigation';
+import { DataTable, EmptyState, type DataTableColumn, type SortDirection } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 import { formatDateRange } from './trip-format';
 import type { TripListItemView } from './trips-types';
@@ -13,6 +14,7 @@ import type { TripListItemView } from './trips-types';
  * itself lives on `TripDetailScreen`.
  */
 export function TripsScreen({ trips }: { trips: readonly TripListItemView[] }) {
+  const router = useRouter();
   const [sortKey, setSortKey] = useState('start');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -64,19 +66,26 @@ export function TripsScreen({ trips }: { trips: readonly TripListItemView[] }) {
         </p>
       </header>
 
-      <DataTable
-        columns={columns}
-        rows={sorted}
-        getRowId={(row) => row.id}
-        sortKey={sortKey}
-        sortDirection={sortDirection}
-        onSortChange={(key, direction) => {
-          setSortKey(key);
-          setSortDirection(direction);
-        }}
-        emptyMessage="No trips yet. Group a saved comparison under a trip from /compare to start tracking it here."
-        caption="Trips"
-      />
+      {trips.length === 0 ? (
+        <EmptyState
+          message="No trips yet. Trips appear when you save a comparison with dates."
+          action={{ label: 'Start a comparison', onClick: () => router.push('/compare') }}
+        />
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={sorted}
+          getRowId={(row) => row.id}
+          sortKey={sortKey}
+          sortDirection={sortDirection}
+          onSortChange={(key, direction) => {
+            setSortKey(key);
+            setSortDirection(direction);
+          }}
+          emptyMessage="No trips yet. Group a saved comparison under a trip from /compare to start tracking it here."
+          caption="Trips"
+        />
+      )}
     </div>
   );
 }

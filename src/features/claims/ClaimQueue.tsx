@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Badge, CountdownTimer, DataTable, type DataTableColumn } from '@/components/ui';
+import { Badge, CountdownTimer, DataTable, EmptyState, type DataTableColumn } from '@/components/ui';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { MS_PER_HOUR } from '@/domain/shared/Clock';
 import { CLAIM_STATUS_LABELS, OPEN_STATUSES, type ClaimStatus } from '@/domain/claim/ClaimStatus';
@@ -117,6 +117,21 @@ export function ClaimQueue({ rows, error, now }: ClaimQueueProps) {
       render: (row) => <Badge variant={CLAIM_STATUS_BADGE_VARIANT[row.status]}>{CLAIM_STATUS_LABELS[row.status]}</Badge>,
     },
   ];
+
+  // No filter UI on this screen, so a zero-row result is always the truly-
+  // empty case — there is no "matches your filter" state to distinguish it
+  // from. That only holds while `localError`/`isPending` are also clear;
+  // both keep routing through `DataTable`'s own error/loading branches.
+  const isEmpty = !localError && !isPending && ordered.length === 0;
+
+  if (isEmpty) {
+    return (
+      <EmptyState
+        message="No claim windows open. Claims open automatically when you book through a channel with a price-match guarantee."
+        action={{ label: 'Compare a stay', onClick: () => router.push('/compare') }}
+      />
+    );
+  }
 
   return (
     <DataTable

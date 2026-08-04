@@ -20,9 +20,9 @@ logged in [`DECISIONS.md`](./DECISIONS.md); the domain restated in plain languag
 
 ## What's built
 
-Not a roadmap — every number below came from actually running the suite on 2026-08-02.
+Not a roadmap — every number below came from actually running the suite on 2026-08-03.
 
-**1,293 tests across 70 files, all green under `pnpm test`:** engine fixtures and properties,
+**1,328 tests across 75 files, all green under `pnpm test`:** engine fixtures and properties,
 aggregate invariants, application-layer instrumentation, and every component state Testing
 Library can drive. `pnpm test:coverage` puts `src/domain/engine`, `src/domain/rules` and
 `src/domain/shared` at 100% of branches, so the figure in the Testing section below is
@@ -37,15 +37,21 @@ expiry, FHR asymmetry, mobile compare, theme flash) cover one money-moving flow 
 coverage status" further down for which of these need a real Postgres to run for real rather
 than being skipped.
 
-**41 routes:** 14 pages under `src/app` (`/compare`, `/claims`, `/credits`, `/ledger`,
+**43 routes:** 14 pages under `src/app` (`/compare`, `/claims`, `/credits`, `/ledger`,
 `/trips`, `/watchlist`, `/properties`, `/settings`, their `[id]`/`rules` variants, and
-`/login`) and 27 API routes under `src/app/api`.
+`/login`) and 29 API routes under `src/app/api`, behind a `middleware.ts` that turns away
+unauthenticated visitors before any server component runs.
 
-**Auth is magic-link only — there is no password field anywhere in this app.**
-`POST /api/auth/magic-link` emails a link; the callback verifies it and sets a session cookie
-that is HMAC-SHA256-signed (`src/lib/auth/session.ts`) and checked with a constant-time
-compare. It was not always signed — `DECISIONS.md` D-140 is the entry for when that got caught
-in review and fixed.
+**Auth is magic-link only — there is no password field anywhere in this app, and sign-up is
+the sign-in.** `POST /api/auth/magic-link` auto-creates an account for an unknown address and
+emails the same link a known one gets (D-153 — the account-enumeration surface is removed,
+not disguised, and a 200ms response floor keeps the timing uniform either way). Tokens are
+stored as SHA-256 digests, never raw (D-155). The callback sets a session cookie that is
+HMAC-SHA256-signed with a server-enforced 30-day `exp` claim (`src/lib/auth/session.ts`),
+checked with a constant-time compare; `POST /api/auth/logout` (sidebar, ⌘K palette, or
+`/settings` on a phone) ends it. Page-tier reads take a **required** `userId` — the
+optional-with-unfiltered-fallback version of those queries is the subject of D-152, the
+security entry this README would rather you read than not know about.
 
 **Cron runs on two different schedulers, for an unglamorous reason.** Three jobs
 (`bucket-expiry-sweep`, `watchlist-reshop`, `rule-staleness`) sit on Vercel Cron, daily or
@@ -156,9 +162,14 @@ the deployment. (D-040, D-042.)
 
 **All design values live in `src/styles/tokens.css` and nowhere else.** No component contains a
 raw hex, rgba, px font size or px radius; `tailwind.config.ts` resolves every class to a
-`var()`. This is the mitigation for the one genuinely unresolved question in the spec (§6.1 —
-the owner asked for "the 70mm Sentry app design" and no such thing was found): if the
-assumption is wrong, reversing it is a one-file edit. (D-050.)
+`var()`. This started as the mitigation for the one genuinely unresolved question in the spec
+(§6.1 — the owner asked for "the 70mm Sentry app design" and no such thing was found): if the
+assumption is wrong, reversing it is a one-file edit. (D-050.) **The assumption was wrong, and
+the bet paid out**: on 2026-08-03 the owner asked for a cleaner, Airbnb-inspired UI, and the
+swap was a rewrite of this one file's *values* — palette, radii, shadows and type scale
+measured from airbnb.com's computed styles, re-stepped where the measured pairs miss WCAG AA,
+light-first with a re-authored charcoal dark mode. Almost everything else restyled itself.
+(D-158.)
 
 ---
 
@@ -217,30 +228,21 @@ authenticated request 401ing rather than as an obviously-auth-shaped error. `.en
 `AUTH_SECRET` ships blank; generate one with `openssl rand -base64 32` before running the suite,
 even though the "Local setup" steps above don't need it for `pnpm dev`.
 
-**E2E coverage status (updated 2026-08-02):** four of the nine `e2e/*.spec.ts` files carry a
-`test.fixme(!process.env.DATABASE_URL, …)` guard on all or part of their test — `claim-lifecycle.
-spec.ts` and `deadline-expiry.spec.ts` in full, and the final "save" step of `compare-and-decide.
-spec.ts` and `mobile-compare.spec.ts` — left conditional, not removed, when they were authored in
-a sandbox where `docker run postgres:16` could not reach Docker Hub. The guard is a live check,
-not a historical note: it evaluates false and every one of those four runs for real (not skipped)
-the moment `DATABASE_URL` points at a reachable, migrated, seeded Postgres — including in CI,
-which has provisioned one via a service container in every job that needs it since this workflow
-was written. All four have since been verified passing locally, against a disposable
-`postgres:16` container. That result is **not yet reflected in CI**: the two fixes described
-below are in the working tree but not committed, so the only CI run to date
-(`.github/workflows/ci.yml`, run 30767075362) still shows this `e2e` job red — it predates
-them. Once the fixes are pushed, the next CI run should match the local result; until then,
-believe the local run, not the badge. Getting the local run green surfaced and fixed two real
-gaps that had nothing to do with Docker: CI's `env:` was missing `AUTH_SECRET` (every
-DB-touching job's production server was
-refusing every session), and `claim-lifecycle.spec.ts` / `deadline-expiry.spec.ts` were missing
-the `test.beforeAll(resetDemoData)` reset their DB-mutating sibling specs already had, which let a
-sibling's demo-account reset race their bookings under this suite's parallel workers and fail them
-on a foreign-key violation. That second fix is a real improvement, not a complete one: five spec
-files now each call `resetDemoData()` independently, and two of those five calls can still
-occasionally collide with each other under `workers: 2` — CI's `retries: 2` is what actually
-absorbs that residual flakiness today, not its absence. See `.github/workflows/ci.yml`'s `e2e`
-job comment and each spec's own file header for the measured detail.
+**E2E coverage status (updated 2026-08-03):** all nine `e2e/*.spec.ts` files run for real
+against the Postgres service container CI provisions — the `test.fixme(!process.env.
+DATABASE_URL, …)` guards four of them carry are live checks that evaluate false there, not
+skips. The `e2e` job went green in CI once two fixes landed: CI's `env:` had been missing
+`AUTH_SECRET` (the production build refuses every session without it, which surfaced as
+401s rather than anything auth-shaped), and two DB-mutating specs were missing the
+`test.beforeAll(resetDemoData)` their siblings had, letting a sibling's demo-account reset
+race their bookings into foreign-key violations under `workers: 2`. That reset fix is a
+real improvement, not a complete one: five spec files still call `resetDemoData()`
+independently and two can occasionally collide — CI's `retries: 2` absorbs the residue.
+Visual-regression baselines are committed for both `darwin` (local runs) and `linux` (CI) —
+Playwright suffixes snapshots per platform, and a repo that only carries one platform's
+baselines fails wholesale on the other, which is exactly how the first visual job run went.
+The `/credits` baselines mask the "N days" countdown text: those figures are server-rendered
+from the real clock and would stale any unmasked baseline within 24 hours.
 
 ---
 

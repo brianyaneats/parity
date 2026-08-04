@@ -16,6 +16,7 @@ import {
   savingsEvents,
   ruleFlags,
   notificationsSent,
+  evidenceBlobs,
 } from '../schema';
 
 /**
@@ -35,6 +36,16 @@ import {
  *    points at private object storage, so the export lists the keys and the
  *    deletion returns them for the caller to purge from storage — the database
  *    cascade alone would leave the images orphaned and readable.
+ *
+ *    That storage is now `evidence_blobs` (`PostgresSignedUrlStorage` — see
+ *    `schema.ts`'s doc comment on that table), which unlike the two points
+ *    above genuinely does cascade with the rest of the user's rows on delete
+ *    (it has the same `userId` `ON DELETE CASCADE` FK every other table
+ *    here has, so `deleteAccount`'s single `DELETE FROM users` already
+ *    reaches it with no extra code). The export below still lists it
+ *    explicitly, metadata only — `contentType`/`sizeBytes`/`createdAt`, never
+ *    the `bytes` column itself, the same reasoning `screenshotKeys` gives for
+ *    carrying a pointer rather than embedding image data in a JSON export.
  */
 
 export interface AccountExport {
@@ -55,6 +66,8 @@ export interface AccountExport {
   readonly ruleFlags: readonly Record<string, unknown>[];
   /** What the product emailed this user — their data too, per §12. */
   readonly notificationsSent: readonly Record<string, unknown>[];
+  /** `evidence_blobs` metadata only — see this file's module doc for why `bytes` is excluded. */
+  readonly evidenceBlobs: readonly Record<string, unknown>[];
   /** Object-storage keys the user should also be given, per §12. */
   readonly screenshotKeys: readonly string[];
 }
@@ -74,6 +87,7 @@ export async function exportAccount(userId: string, now: Date): Promise<AccountE
     savingsRows,
     flagRows,
     notificationRows,
+    evidenceBlobRows,
   ] = await Promise.all([
     db.select().from(users).where(eq(users.id, userId)),
     db.select().from(userSettings).where(eq(userSettings.userId, userId)),
@@ -90,6 +104,16 @@ export async function exportAccount(userId: string, now: Date): Promise<AccountE
     db.select().from(savingsEvents).where(eq(savingsEvents.userId, userId)),
     db.select().from(ruleFlags).where(eq(ruleFlags.userId, userId)),
     db.select().from(notificationsSent).where(eq(notificationsSent.userId, userId)),
+    // Metadata only — never `bytes` — see this file's module doc.
+    db
+      .select({
+        id: evidenceBlobs.id,
+        contentType: evidenceBlobs.contentType,
+        sizeBytes: evidenceBlobs.sizeBytes,
+        createdAt: evidenceBlobs.createdAt,
+      })
+      .from(evidenceBlobs)
+      .where(eq(evidenceBlobs.userId, userId)),
   ]);
 
   // The two child tables scoped only through their parent comparison.
@@ -122,6 +146,7 @@ export async function exportAccount(userId: string, now: Date): Promise<AccountE
     savingsEvents: savingsRows,
     ruleFlags: flagRows,
     notificationsSent: notificationRows,
+    evidenceBlobs: evidenceBlobRows,
     screenshotKeys: competingRateRows
       .map((row) => row.screenshotKey)
       .filter((key): key is string => typeof key === 'string' && key.length > 0),
@@ -166,6 +191,7 @@ export async function deleteAccount(userId: string, now: Date): Promise<Deletion
     savingsEvents: snapshot.savingsEvents.length,
     ruleFlags: snapshot.ruleFlags.length,
     notificationsSent: snapshot.notificationsSent.length,
+    evidenceBlobs: snapshot.evidenceBlobs.length,
   };
 
   await db.delete(users).where(eq(users.id, userId));
