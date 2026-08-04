@@ -103,6 +103,9 @@ configuring email — it is refused in production.
 
 If you have a Postgres already, skip the `docker run` and point `DATABASE_URL` at it.
 
+Deploying it for real — Vercel, a hosted Postgres, Resend, and the one Cloudflare
+Worker cron — is a separate fifteen-minute path: [`DEPLOYING.md`](./DEPLOYING.md).
+
 ---
 
 ## What runs what
