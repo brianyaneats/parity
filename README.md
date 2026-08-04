@@ -233,11 +233,16 @@ against the Postgres service container CI provisions — the `test.fixme(!proces
 DATABASE_URL, …)` guards four of them carry are live checks that evaluate false there, not
 skips. The `e2e` job went green in CI once two fixes landed: CI's `env:` had been missing
 `AUTH_SECRET` (the production build refuses every session without it, which surfaced as
-401s rather than anything auth-shaped), and two DB-mutating specs were missing the
-`test.beforeAll(resetDemoData)` their siblings had, letting a sibling's demo-account reset
-race their bookings into foreign-key violations under `workers: 2`. That reset fix is a
-real improvement, not a complete one: five spec files still call `resetDemoData()`
-independently and two can occasionally collide — CI's `retries: 2` absorbs the residue.
+401s rather than anything auth-shaped), and the DB-mutating specs shared one demo account.
+That second one was the suite's only real flake, and it is now fixed at the root rather
+than absorbed by retries: **each Playwright worker seeds and signs in as its own fixture
+account**, keyed off `TEST_PARALLEL_INDEX` (`e2e/support/constants.ts`). `resetDemoData()`
+is a cascading `DELETE FROM users`, so with a shared account one spec's reset routinely
+fired while a sibling's test was mid-flow and deleted its booking and claim underneath it —
+seen as `Claim not found` on the evidence POST. Serializing the resets could never fix
+that, because the collision was between a reset and a *running test*; not sharing the data
+is what fixes it. Measured before: 1 flaky of 51 under `workers: 2`. After: 51/51 clean,
+twice consecutively.
 Visual-regression baselines are committed for both `darwin` (local runs) and `linux` (CI) —
 Playwright suffixes snapshots per platform, and a repo that only carries one platform's
 baselines fails wholesale on the other, which is exactly how the first visual job run went.

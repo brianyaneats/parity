@@ -33,8 +33,16 @@ import { DrizzleBookingRepository } from '../repositories/DrizzleBookingReposito
 import { DrizzleClaimRepository } from '../repositories/DrizzleClaimRepository';
 import { DrizzleCreditBucketRepository } from '../repositories/DrizzleCreditBucketRepository';
 
-const DEMO_USER_ID = '11111111-1111-4111-8111-111111111111';
-const DEMO_EMAIL = 'demo@parity.local';
+/**
+ * The demo account this script builds. Overridable by environment so the E2E
+ * suite can seed one fixture account *per Playwright worker*
+ * (`e2e/support/constants.ts` explains why: a shared account meant one spec's
+ * reset cascade-deleted a sibling spec's in-flight data). Unset — a plain
+ * `pnpm db:seed`, and worker slot 0 — is the canonical pair below, so the
+ * documented local setup is unchanged.
+ */
+const DEMO_USER_ID = process.env.PARITY_SEED_USER_ID ?? '11111111-1111-4111-8111-111111111111';
+const DEMO_EMAIL = process.env.PARITY_SEED_EMAIL ?? 'demo@parity.local';
 const DEMO_ANNIVERSARY = '2020-03-15';
 
 async function seedDemoUser(): Promise<void> {

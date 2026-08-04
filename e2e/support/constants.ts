@@ -28,3 +28,39 @@ export const BASE_URL = `http://localhost:${PORT}`;
  */
 export const DEMO_USER_ID = '11111111-1111-4111-8111-111111111111';
 export const DEMO_EMAIL = 'demo@parity.local';
+
+/**
+ * Per-worker fixture identity — the fix for this suite's one real flake.
+ *
+ * Every DB-mutating spec used to share the single account above, and
+ * `resetDemoData()` is a `DELETE FROM users` that cascades (§4.1). Since
+ * Playwright runs `beforeAll` once *per worker*, one spec's reset routinely
+ * fired while a sibling spec's test was mid-flow, cascading its booking and
+ * claim out from under it — observed as "Claim not found" on
+ * `POST /api/claims/:id/evidence`, and unfixable by serializing the resets
+ * against each other, because the collision is between a reset and a
+ * *running test*, not between two resets.
+ *
+ * So each worker gets its own account instead. `TEST_PARALLEL_INDEX` is
+ * Playwright's parallel-slot index (0..workers-1, reused when a worker
+ * restarts), so the set of fixture users stays small and deterministic.
+ * Slot 0 keeps the canonical id and email, which is what a plain
+ * `pnpm db:seed` and `global-setup.ts` produce — so a single-worker or
+ * manual run is byte-for-byte what it always was.
+ */
+export const WORKER_INDEX = Number(process.env.TEST_PARALLEL_INDEX ?? '0');
+
+export function demoUserIdFor(workerIndex: number): string {
+  if (workerIndex === 0) return DEMO_USER_ID;
+  // Keeps the uuid shape (and v4 version/variant nibbles) while varying only
+  // the node field, so these read as obviously-related fixture accounts.
+  return `11111111-1111-4111-8111-${String(workerIndex).padStart(12, '0')}`;
+}
+
+export function demoEmailFor(workerIndex: number): string {
+  return workerIndex === 0 ? DEMO_EMAIL : `demo+w${workerIndex}@parity.local`;
+}
+
+/** This worker's own fixture account. */
+export const WORKER_USER_ID = demoUserIdFor(WORKER_INDEX);
+export const WORKER_EMAIL = demoEmailFor(WORKER_INDEX);

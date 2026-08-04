@@ -1,5 +1,5 @@
 import type { BrowserContext } from '@playwright/test';
-import { BASE_URL, DEMO_EMAIL, DEMO_USER_ID } from './constants';
+import { BASE_URL, WORKER_EMAIL, WORKER_USER_ID } from './constants';
 import { encodeSession, SESSION_COOKIE as REAL_SESSION_COOKIE } from '@/lib/auth/session';
 
 /**
@@ -39,7 +39,10 @@ export async function signInAsDemoUser(context: BrowserContext): Promise<void> {
   await context.addCookies([
     {
       name: SESSION_COOKIE,
-      value: encodeSession({ userId: DEMO_USER_ID, email: DEMO_EMAIL }),
+      // This worker's own fixture account (see `constants.ts`) — signing in
+      // as a per-worker user is what keeps one spec's reset from deleting a
+      // sibling spec's data mid-test.
+      value: encodeSession({ userId: WORKER_USER_ID, email: WORKER_EMAIL }),
       url: BASE_URL,
       httpOnly: true,
       sameSite: 'Lax',

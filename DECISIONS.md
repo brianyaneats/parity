@@ -764,3 +764,23 @@ at render, so a stale toggle can never leak a phantom credit into the math), wit
 "cards you don't hold are hidden" line so the gating is legible rather than mysterious.
 Zero cards configured keeps the both-cards default — the founding assumption, and what the
 demo account shows.
+
+### D-162 — Every E2E worker gets its own fixture account
+The suite's one genuine flake had survived two rounds of patching because both rounds
+misdiagnosed it. `resetDemoData()` is a cascading `DELETE FROM users`, every DB-mutating
+spec shared the single seeded demo account, and Playwright runs `beforeAll` once *per
+worker* — so one spec's reset routinely fired while a sibling spec's test was mid-flow and
+deleted that test's booking and claim out from under it. The symptom was `Claim not found`
+on `POST /api/claims/:id/evidence`, which reads like an application bug and is not one.
+**Reason the earlier fixes did not work:** adding `resetDemoData()` to more specs, and later
+serializing the resets against each other under a Postgres advisory lock, both addressed
+reset-versus-reset collisions. The actual collision is reset-versus-*running-test*. No
+mutex over the resets can fix that; only not sharing the data can.
+**Chosen:** each worker seeds and signs in as its own account, derived from Playwright's
+`TEST_PARALLEL_INDEX` (slot 0 keeps the canonical id and email, so a plain `pnpm db:seed`
+and any single-worker run are byte-for-byte unchanged). `run-seed.ts` takes the identity
+from `PARITY_SEED_USER_ID`/`PARITY_SEED_EMAIL`; `global-setup.ts` seeds one account per
+worker slot up front so the specs that never reset (`theme-no-flash`, `fhr-asymmetry`) are
+safe on whichever slot they land on. The advisory lock stays, now for its own narrower
+reason: the seed also upserts the ~45 *global* properties every worker shares.
+Measured: 1 flaky of 51 before, 51/51 clean twice after, at `workers: 2`.
