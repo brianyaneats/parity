@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, LogOut } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useToast } from '@/components/ui';
 import { FOCUS_RING } from '@/components/ui/_shared';
@@ -80,9 +80,7 @@ export function SignOutButton({ className }: { readonly className?: string }) {
       {pending ? (
         <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin text-text-muted" />
       ) : (
-        <span aria-hidden="true" className="font-mono text-xs text-text-muted lg:hidden">
-          SO
-        </span>
+        <LogOut aria-hidden="true" strokeWidth={1.75} className="h-5 w-5 shrink-0 lg:hidden" />
       )}
       <span aria-hidden="true" className="hidden lg:inline">
         {pending ? 'Signing out…' : 'Sign out'}

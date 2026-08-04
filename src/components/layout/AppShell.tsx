@@ -171,10 +171,12 @@ function Sidebar({ badges }: { badges: NavBadges }) {
               : 'text-text-secondary hover:bg-glass-hover hover:text-text-primary',
           )}
         >
-          <span aria-hidden="true" className="font-mono text-xs text-text-muted lg:hidden">
-            St
-          </span>
-          <span className="hidden lg:inline">Settings</span>
+          <SETTINGS_NAV_ITEM.icon
+            aria-hidden="true"
+            strokeWidth={1.75}
+            className="h-5 w-5 shrink-0 lg:hidden"
+          />
+          <span className="sr-only lg:not-sr-only">Settings</span>
         </Link>
 
         <div className="mt-2">
