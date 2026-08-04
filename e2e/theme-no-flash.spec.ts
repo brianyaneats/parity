@@ -48,13 +48,24 @@ test.describe('Theme — no flash of the wrong theme', () => {
       const theme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
       expect(theme).toBe('light');
 
-      // §6.2's light canvas is #f7f6fa = rgb(247, 246, 250). Checking the
-      // computed colour (not just the attribute) catches the case where the
-      // attribute is right but a stray dark-mode style still won.
-      const backgroundColor = await page.evaluate(
-        () => getComputedStyle(document.body).backgroundColor,
-      );
-      expect(backgroundColor).toBe('rgb(247, 246, 250)');
+      // Checking the computed colour (not just the attribute) catches the
+      // case where the attribute is right but a stray dark-mode style still
+      // won. Compared against whatever the light theme's `--canvas` token
+      // resolves to rather than a pinned hex — the token file is the single
+      // source of design truth (D-050/D-158), and this spec's business is
+      // theme *application*, not the palette's current values.
+      const { painted, tokenResolved } = await page.evaluate(() => {
+        const probe = document.createElement('div');
+        probe.style.backgroundColor = 'var(--canvas)';
+        document.body.appendChild(probe);
+        const tokenColor = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return {
+          painted: getComputedStyle(document.body).backgroundColor,
+          tokenResolved: tokenColor,
+        };
+      });
+      expect(painted).toBe(tokenResolved);
     });
 
     await test.step('no color-scheme mismatch remains after hydration settles', async () => {

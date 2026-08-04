@@ -60,7 +60,18 @@ export default defineConfig({
   // the figures a later spec asserts — shared mutable state, not flakiness.
   globalSetup: './e2e/support/global-setup.ts',
   timeout: 45_000,
-  expect: { timeout: 10_000 },
+  expect: {
+    timeout: 10_000,
+    // Visual baselines are compared across two Linux environments that are
+    // deliberately close but not identical: the committed `-linux` snapshots
+    // come from the mcr.microsoft.com/playwright image, CI renders on the
+    // ubuntu-latest runner, and their Chromium builds antialias text a
+    // measured ~2% of pixels apart (run 30867187798: 20,334 differing pixels
+    // on a 390×4789 capture, all font edges). 3% absorbs that while still
+    // failing loudly on anything structural — a collapsed section, a wrong
+    // theme, or a shifted layout moves far more than 3% of an image.
+    toHaveScreenshot: { maxDiffPixelRatio: 0.03 },
+  },
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
