@@ -5,6 +5,7 @@ import { POINTS_RULES } from './points.rules';
 import { PERKS_RULES } from './perks.rules';
 import { BRG_RULES } from './brg.rules';
 import { FORA_RULES } from './fora.rules';
+import { POSTING_RULES } from './posting.rules';
 import { CHANNEL_CATALOG_RULE } from './channels.rules';
 
 /**
@@ -25,6 +26,7 @@ export const ALL_RULES: readonly RuleConstant<unknown>[] = Object.freeze([
   ...POINTS_RULES,
   ...PERKS_RULES,
   ...BRG_RULES,
+  ...POSTING_RULES,
   ...FORA_RULES,
 ] as RuleConstant<unknown>[]);
 

@@ -1,6 +1,7 @@
 import type { Cents } from '@/domain/shared/cents';
 import type { ClaimKind } from '@/domain/claim/Claim';
 import type { ClaimStatus } from '@/domain/claim/ClaimStatus';
+import type { DenialCode } from '@/domain/claim/DenialReason';
 
 export type { ClaimKind, ClaimStatus };
 
@@ -17,6 +18,7 @@ export interface ClaimRecord {
   readonly submittedAt: Date | null;
   readonly resolvedAt: Date | null;
   readonly denialReason: string | null;
+  readonly denialCode: DenialCode | null;
   readonly notes: string | null;
   readonly createdAt: Date;
 }
@@ -45,6 +47,7 @@ export interface ClaimPatch {
   readonly submittedAt?: Date | null;
   readonly resolvedAt?: Date | null;
   readonly denialReason?: string | null;
+  readonly denialCode?: DenialCode | null;
   readonly notes?: string | null;
 }
 

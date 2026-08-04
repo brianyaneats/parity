@@ -106,7 +106,7 @@ describe('seed data integrity', () => {
   });
 
   it('uses only brands the rules module knows about', () => {
-    const known = new Set(['NONE', 'HILTON', 'MARRIOTT', 'HYATT', 'IHG', 'WYNDHAM', 'CHOICE', 'BEST_WESTERN']);
+    const known = new Set(['NONE', 'HILTON', 'MARRIOTT', 'HYATT', 'IHG', 'WYNDHAM', 'CHOICE', 'BEST_WESTERN', 'ACCOR']);
     for (const seed of PROPERTY_SEEDS) {
       expect(known, `${seed.name} has brand ${seed.brand}`).toContain(seed.brand);
     }

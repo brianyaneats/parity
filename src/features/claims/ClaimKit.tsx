@@ -23,7 +23,9 @@ import {
   looksCropped,
 } from '@/domain/claim/EvidenceChecklist';
 import { generateClaimPacket } from '@/domain/claim/claim-packet';
+import { DENIAL_CODES, DENIAL_REASONS, isAppealable, type DenialCode } from '@/domain/claim/DenialReason';
 import type { Cents } from '@/domain/shared/cents';
+import { cn } from '@/lib/cn';
 import { CLAIM_STATUS_BADGE_VARIANT } from './status-presentation';
 import { useClaimPersistence } from './useClaimPersistence';
 
@@ -61,6 +63,7 @@ export interface ClaimKitData {
   readonly submittedAt: string | null;
   readonly resolvedAt: string | null;
   readonly denialReason: string | null;
+  readonly denialCode: DenialCode | null;
   readonly notes: string | null;
   readonly competingRateId: string | null;
 
@@ -133,6 +136,7 @@ export function ClaimKit({ data }: { data: ClaimKitData }) {
       submittedAt: data.submittedAt ? new Date(data.submittedAt) : null,
       resolvedAt: data.resolvedAt ? new Date(data.resolvedAt) : null,
       denialReason: data.denialReason,
+      denialCode: data.denialCode,
       notes: data.notes,
     }),
   );
@@ -297,10 +301,20 @@ export function ClaimKit({ data }: { data: ClaimKitData }) {
   const [outcome, setOutcome] = React.useState<OutcomeChoice>('PARTIAL');
   const [awardedDraft, setAwardedDraft] = React.useState<number | null>(null);
   const [denialReasonDraft, setDenialReasonDraft] = React.useState('');
+  // `''` rather than `undefined` — Radix's RadioGroup warns loudly if a
+  // controlled `value` starts `undefined` and later becomes a string.
+  const [denialCodeDraft, setDenialCodeDraft] = React.useState<DenialCode | ''>('');
 
   async function handleRecordOutcome() {
     if (outcome !== 'DENIED' && awardedDraft === null) {
       toast({ title: 'Enter the amount the issuer awarded first.', variant: 'error' });
+      return;
+    }
+    // A code is what turns "denied" into "worth contesting or not" — the
+    // entire point of this feature — so it is required, the same way an
+    // award figure is required for APPROVED/PARTIAL above.
+    if (outcome === 'DENIED' && denialCodeDraft === '') {
+      toast({ title: 'Select what the issuer actually said first.', variant: 'error' });
       return;
     }
 
@@ -311,7 +325,7 @@ export function ClaimKit({ data }: { data: ClaimKitData }) {
       claim,
       outcome,
       outcome === 'DENIED'
-        ? { denialReason: denialReasonDraft.trim() || 'Not specified.' }
+        ? { denialReason: denialReasonDraft.trim() || 'Not specified.', denialCode: denialCodeDraft || undefined }
         : { awardedCents: awardedDraft as Cents },
     );
 
@@ -429,12 +443,25 @@ export function ClaimKit({ data }: { data: ClaimKitData }) {
               ]}
             />
             {outcome === 'DENIED' ? (
-              <Input
-                label="Denial reason"
-                value={denialReasonDraft}
-                onChange={(event) => setDenialReasonDraft(event.target.value)}
-                placeholder="e.g. competing rate was member-only"
-              />
+              <div className="flex flex-col gap-3">
+                <RadioGroup
+                  label="Denial reason"
+                  value={denialCodeDraft}
+                  onChange={(value) => setDenialCodeDraft(value as DenialCode)}
+                  options={DENIAL_CODES.map((code) => ({
+                    value: code,
+                    label: DENIAL_REASONS[code].label,
+                    description: DENIAL_REASONS[code].asStated || undefined,
+                  }))}
+                />
+                {denialCodeDraft ? <DenialGuidance code={denialCodeDraft} /> : null}
+                <Input
+                  label="Their exact words (optional)"
+                  value={denialReasonDraft}
+                  onChange={(event) => setDenialReasonDraft(event.target.value)}
+                  placeholder="Paste the issuer's own wording here"
+                />
+              </div>
             ) : (
               <CurrencyInput
                 label="Amount awarded"
@@ -456,9 +483,14 @@ export function ClaimKit({ data }: { data: ClaimKitData }) {
           </p>
         ) : null}
         {claim.status === 'DENIED' ? (
-          <p className="text-sm text-text-primary">
-            Denied{claim.denialReason ? ` — ${claim.denialReason}` : '.'}
-          </p>
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-text-primary">
+              Denied{claim.denialReason ? ` — ${claim.denialReason}` : '.'}
+            </p>
+            {/* Survives a reload: the code came back from the server on
+                `data.denialCode`, not from the (now-empty) draft state above. */}
+            {claim.denialCode ? <DenialGuidance code={claim.denialCode} /> : null}
+          </div>
         ) : null}
         {claim.status === 'NOT_PURSUED' || claim.status === 'EXPIRED' ? (
           <p className="text-sm text-text-secondary">
@@ -474,6 +506,53 @@ export function ClaimKit({ data }: { data: ClaimKitData }) {
         Partial approval is common, and the gap shown for this claim is an estimate, not a promise. The amount
         actually credited is at the issuer&rsquo;s discretion.
       </p>
+    </div>
+  );
+}
+
+/**
+ * The payoff of `DenialReason.ts` — telling the user, in plain terms, whether
+ * a denial is worth fighting. Appealable codes get the rebuttal to send back;
+ * everything else gets what would have prevented it, because there is
+ * nothing left to contest. Rendered both while composing an outcome (from
+ * `denialCodeDraft`) and after reload (from the persisted `claim.denialCode`)
+ * — a standalone component keeps its own copy-state independent in each spot.
+ */
+function DenialGuidance({ code }: { code: DenialCode }) {
+  const { toast } = useToast();
+  const [copied, setCopied] = React.useState(false);
+  const reason = DENIAL_REASONS[code];
+  const appealable = isAppealable(code);
+
+  async function handleCopyRebuttal() {
+    if (!reason.rebuttal) return;
+    try {
+      await navigator.clipboard.writeText(reason.rebuttal);
+      setCopied(true);
+      toast({ title: 'Rebuttal copied', variant: 'success', durationMs: 2500 });
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({
+        title: 'Could not copy automatically',
+        description: 'Select the text above and copy it manually.',
+        variant: 'error',
+      });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className={cn('text-sm font-semibold', appealable ? 'text-status-good' : 'text-status-warning')}>
+          {appealable ? 'Worth contesting' : 'Not worth contesting — for next time'}
+        </p>
+        {appealable ? (
+          <Button variant="secondary" size="sm" onClick={handleCopyRebuttal}>
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        ) : null}
+      </div>
+      <p className="text-sm text-text-secondary">{appealable ? reason.rebuttal : reason.preventable}</p>
     </div>
   );
 }

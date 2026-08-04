@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
-import { CreditWallet } from '../CreditWallet';
+import { ToastProvider } from '@/components/ui';
+import { CreditWallet, type CreditWalletProps } from '../CreditWallet';
 import type { BucketRow } from '../types';
 
 /**
@@ -10,6 +11,11 @@ import type { BucketRow } from '../types';
  * nothing is configured (today's founding assumption, and what the seeded
  * demo account still shows), only the held card's section otherwise, plus
  * the muted disclosure naming why a section went missing.
+ *
+ * Wrapped in `ToastProvider` (same as `ClaimKit.dom.test.tsx`) because
+ * `CreditWallet` now always renders `CreditPostingTracker`'s "log a credit"
+ * disclosure, which calls `useToast()` unconditionally — without a provider
+ * in the tree that throws before any of these assertions get a chance to run.
  */
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
@@ -34,17 +40,25 @@ const BUCKETS: readonly BucketRow[] = [
   bucket({ id: 'csr-1', key: 'CSR_EDIT_H1', label: 'The Edit credit · Jan–Jun', faceCents: 25_000 }),
 ];
 
-describe('CreditWallet — honest cards gating', () => {
-  it('shows both card sections when nothing is configured', () => {
-    render(
+function renderWallet(overrides: Partial<CreditWalletProps> = {}) {
+  return render(
+    <ToastProvider>
       <CreditWallet
         buckets={BUCKETS}
         comparisons={[]}
+        postings={[]}
         todayIsoDate={TODAY}
         isLive
         activeCardKinds={[]}
-      />,
-    );
+        {...overrides}
+      />
+    </ToastProvider>,
+  );
+}
+
+describe('CreditWallet — honest cards gating', () => {
+  it('shows both card sections when nothing is configured', () => {
+    renderWallet({ activeCardKinds: [] });
 
     expect(screen.getByRole('heading', { name: 'Amex Platinum' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Chase Sapphire Reserve' })).toBeInTheDocument();
@@ -52,15 +66,7 @@ describe('CreditWallet — honest cards gating', () => {
   });
 
   it('hides the Amex section and shows the settings hint when only CSR is configured', () => {
-    render(
-      <CreditWallet
-        buckets={BUCKETS}
-        comparisons={[]}
-        todayIsoDate={TODAY}
-        isLive
-        activeCardKinds={['CSR']}
-      />,
-    );
+    renderWallet({ activeCardKinds: ['CSR'] });
 
     expect(screen.queryByRole('heading', { name: 'Amex Platinum' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Chase Sapphire Reserve' })).toBeInTheDocument();
@@ -71,15 +77,7 @@ describe('CreditWallet — honest cards gating', () => {
   });
 
   it('shows both sections, with no hint, when every card is configured', () => {
-    render(
-      <CreditWallet
-        buckets={BUCKETS}
-        comparisons={[]}
-        todayIsoDate={TODAY}
-        isLive
-        activeCardKinds={['AMEX_PLATINUM', 'CSR']}
-      />,
-    );
+    renderWallet({ activeCardKinds: ['AMEX_PLATINUM', 'CSR'] });
 
     expect(screen.getByRole('heading', { name: 'Amex Platinum' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Chase Sapphire Reserve' })).toBeInTheDocument();

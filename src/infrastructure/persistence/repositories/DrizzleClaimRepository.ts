@@ -10,6 +10,7 @@ import type {
   ClaimSweepRow,
   NewClaimInput,
 } from '@/application/ports/ClaimRepository';
+import type { DenialCode } from '@/domain/claim/DenialReason';
 import type { DrizzleHandle } from './drizzle-handle';
 
 const DEFAULT_TIMEZONE = 'America/New_York';
@@ -71,6 +72,7 @@ export class DrizzleClaimRepository implements ClaimRepository {
         ...(patch.submittedAt !== undefined ? { submittedAt: patch.submittedAt } : {}),
         ...(patch.resolvedAt !== undefined ? { resolvedAt: patch.resolvedAt } : {}),
         ...(patch.denialReason !== undefined ? { denialReason: patch.denialReason } : {}),
+        ...(patch.denialCode !== undefined ? { denialCode: patch.denialCode } : {}),
         ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
       })
       .where(and(eq(claims.id, id), eq(claims.userId, userId)))
@@ -115,6 +117,9 @@ interface ClaimRowLike {
   readonly submittedAt: Date | null;
   readonly resolvedAt: Date | null;
   readonly denialReason: string | null;
+  // The column is plain `text`, unlike `kind`'s `.$type<ClaimKind>()` — cast
+  // at the boundary in `toClaimRecord` below rather than widening it there.
+  readonly denialCode: string | null;
   readonly notes: string | null;
   readonly createdAt: Date;
 }
@@ -133,6 +138,7 @@ function toClaimRecord(row: ClaimRowLike): ClaimRecord {
     submittedAt: row.submittedAt,
     resolvedAt: row.resolvedAt,
     denialReason: row.denialReason,
+    denialCode: row.denialCode as DenialCode | null,
     notes: row.notes,
     createdAt: row.createdAt,
   };

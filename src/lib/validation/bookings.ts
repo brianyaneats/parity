@@ -17,6 +17,15 @@ export const createBookingSchema = z.object({
   pointsUsed: z.number().int().min(0).nullable().optional(),
   prepaid: z.boolean(),
   refundable: z.boolean(),
+  /**
+   * Who actually processed the charge. Distinct from `prepaid`, which only
+   * reflects the *rate type* — a booking can be prepaid in that sense and
+   * still have been charged by the property rather than the issuer, which is
+   * precisely the case where the statement credit silently never posts
+   * (`posting.rules.ts`). Optional: rows recorded before this existed, and
+   * users who decline to say, genuinely do not know.
+   */
+  paymentRoute: z.enum(['PREPAID_VIA_ISSUER', 'DEPOSIT_TO_HOTEL', 'PAY_AT_PROPERTY']).optional(),
   cancelDeadline: isoDateSchema.nullable().optional(),
   bucketId: uuidSchema.nullable().optional(),
 });

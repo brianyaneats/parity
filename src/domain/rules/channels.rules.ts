@@ -25,7 +25,8 @@ export type ChainBrand =
   | 'IHG'
   | 'WYNDHAM'
   | 'CHOICE'
-  | 'BEST_WESTERN';
+  | 'BEST_WESTERN'
+  | 'ACCOR';
 
 export type BrandOrNone = ChainBrand | 'NONE';
 

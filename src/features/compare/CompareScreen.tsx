@@ -29,6 +29,8 @@ import { useComparison } from './useComparison';
 import { useSaveComparison, canPersist } from './useSaveComparison';
 import { PasteRateBlock } from './PasteRateBlock';
 import { OnboardingBanner } from './OnboardingBanner';
+import { PaymentRoutePrompt } from './PaymentRoutePrompt';
+import type { PaymentRoute } from '@/domain/rules/posting.rules';
 import { nightsBetween, type ParsedRate } from '@/domain/parsing/rate-paste-parser';
 import { cn } from '@/lib/cn';
 import { formatCents, formatSaving } from '@/lib/format';
@@ -161,6 +163,7 @@ export function CompareScreen({
   cardVisibility,
   showOnboarding,
 }: CompareScreenProps) {
+  const [askPaymentRoute, setAskPaymentRoute] = useState(false);
   const [propertyId, setPropertyId] = useState<string | undefined>(undefined);
   const [nights, setNights] = useState(3);
   const [checkIn, setCheckIn] = useState('');
@@ -1030,7 +1033,15 @@ export function CompareScreen({
                         variant="secondary"
                         loading={persistence.state === 'saving'}
                         disabled={!canPersist(checkIn, checkOut)}
-                        onClick={() => void persistence.markAsBooked(saveInput, winner)}
+                        onClick={() => {
+                          // Where a statement credit is at stake, ask who took
+                          // the money before recording — see PaymentRoutePrompt.
+                          if (winner.creditKeptCents > 0) {
+                            setAskPaymentRoute(true);
+                            return;
+                          }
+                          void persistence.markAsBooked(saveInput, winner);
+                        }}
                       >
                         Mark as booked
                       </Button>
@@ -1041,6 +1052,19 @@ export function CompareScreen({
                         <span className="text-xs text-text-muted">Confirming with the server…</span>
                       ) : null}
                     </div>
+
+                    {askPaymentRoute ? (
+                      <PaymentRoutePrompt
+                        creditAtRiskCents={winner.creditKeptCents}
+                        pending={persistence.state === 'saving'}
+                        onCancel={() => setAskPaymentRoute(false)}
+                        onConfirm={(route: PaymentRoute) => {
+                          void persistence.markAsBooked(saveInput, winner, route).then((ok) => {
+                            if (ok) setAskPaymentRoute(false);
+                          });
+                        }}
+                      />
+                    ) : null}
 
                     {/* A disabled button with no reason is a dead end. §13.1:
                         name the thing and the consequence in the same sentence. */}

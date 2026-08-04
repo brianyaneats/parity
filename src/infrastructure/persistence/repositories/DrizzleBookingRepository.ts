@@ -41,6 +41,7 @@ export class DrizzleBookingRepository implements BookingRepository {
         cancelDeadline: input.cancelDeadline,
         bucketId: input.bucketId,
         status: input.status,
+        paymentRoute: input.paymentRoute ?? null,
       })
       .returning();
     if (!row) throw new Error('Insert into bookings returned no row.');
@@ -89,6 +90,7 @@ interface BookingRowLike {
   readonly cancelDeadline: string | null;
   readonly bucketId: string | null;
   readonly status: BookingRecord['status'];
+  readonly paymentRoute: BookingRecord['paymentRoute'];
   readonly createdAt: Date;
 }
 
@@ -110,6 +112,7 @@ function toBookingRecord(row: BookingRowLike): BookingRecord {
     cancelDeadline: row.cancelDeadline,
     bucketId: row.bucketId,
     status: row.status,
+    paymentRoute: row.paymentRoute,
     createdAt: row.createdAt,
   };
 }

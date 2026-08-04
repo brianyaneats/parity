@@ -185,6 +185,21 @@ describe('Claim state machine — §7.4, DECISIONS.md D-034', () => {
     expect(claim.awardedCents).toBeNull();
   });
 
+  it('records a structured denialCode alongside the free-text reason', () => {
+    const claim = openClaim();
+    claim.transitionTo('SUBMITTED', now);
+    claim.transitionTo('DENIED', now, {
+      denialReason: 'Competing rate was member-only.',
+      denialCode: 'MEMBERSHIP_GATED',
+    });
+
+    expect(claim.denialCode).toBe('MEMBERSHIP_GATED');
+  });
+
+  it('defaults denialCode to null for a claim opened before DenialReason.ts existed', () => {
+    expect(openClaim().denialCode).toBeNull();
+  });
+
   it('treats every terminal status as final', () => {
     for (const terminal of ['APPROVED', 'PARTIAL', 'DENIED', 'EXPIRED', 'NOT_PURSUED'] as const) {
       expect(ALLOWED_TRANSITIONS[terminal]).toEqual([]);

@@ -94,6 +94,27 @@ export type ComparisonStatus = (typeof comparisonStatusEnum.enumValues)[number];
 
 /** §4.2 `booking_status`. Persistence-only, same reasoning as above. */
 export const bookingStatusEnum = pgEnum('booking_status', ['ACTIVE', 'CANCELLED', 'COMPLETED']);
+
+/**
+ * Who actually took the money — the distinction that decides whether a portal
+ * statement credit can post at all (`posting.rules.ts`). Nullable on the
+ * bookings table because rows recorded before this existed genuinely do not
+ * know, and guessing would fabricate the very fact the user needs.
+ */
+export const paymentRouteEnum = pgEnum('payment_route', [
+  'PREPAID_VIA_ISSUER',
+  'DEPOSIT_TO_HOTEL',
+  'PAY_AT_PROPERTY',
+]);
+
+/** Lifecycle of an expected statement credit, from charge to money-in-hand. */
+export const creditPostingStatusEnum = pgEnum('credit_posting_status', [
+  'PENDING',
+  'POSTED',
+  'MISSING',
+  'DISPUTED',
+  'WRITTEN_OFF',
+]);
 export type BookingStatus = (typeof bookingStatusEnum.enumValues)[number];
 
 /**
@@ -424,6 +445,7 @@ export const bookings = pgTable(
     cancelDeadline: date('cancel_deadline', { mode: 'string' }),
     bucketId: uuid('bucket_id').references(() => creditBuckets.id, { onDelete: 'set null' }),
     status: bookingStatusEnum('status').notNull().default('ACTIVE'),
+    paymentRoute: paymentRouteEnum('payment_route'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('bookings_user_booked_idx').on(t.userId, t.bookedAt.desc())],
@@ -454,6 +476,10 @@ export const claims = pgTable(
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     denialReason: text('denial_reason'),
+    /** Structured counterpart to `denial_reason` — a `DenialCode` from
+     *  `src/domain/claim/DenialReason.ts`. Free text records *that* a claim
+     *  died; the code is what lets the app say whether it is worth contesting. */
+    denialCode: text('denial_code'),
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -883,3 +909,62 @@ export const evidenceBlobsRelations = relations(evidenceBlobs, ({ one }) => ({
 
 export type EvidenceBlobRow = typeof evidenceBlobs.$inferSelect;
 export type NewEvidenceBlobRow = typeof evidenceBlobs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// credit_postings — did the statement credit actually arrive?
+// ---------------------------------------------------------------------------
+
+/**
+ * One expected statement credit, tracked from charge to money-in-hand.
+ *
+ * `credit_buckets.consumed_cents` answers "how much of this allowance have I
+ * spent" — a forecast. It cannot answer "did the issuer actually pay me back",
+ * which is where the money is genuinely lost: credits that require enrolment
+ * before purchase, issuer-side faults that withhold a whole cohort's credits
+ * for weeks, and postings that take anywhere from same-day to twelve days so
+ * nobody knows when to start worrying (`posting.rules.ts`).
+ *
+ * Kept as its own table rather than columns on `bookings` because one booking
+ * can trigger more than one credit (a portal credit and an on-property credit
+ * settle separately, on different dates), and because a credit can exist with
+ * no booking behind it at all once a user logs one by hand.
+ */
+export const creditPostings = pgTable(
+  'credit_postings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bucketId: uuid('bucket_id').references(() => creditBuckets.id, { onDelete: 'set null' }),
+    bookingId: uuid('booking_id').references(() => bookings.id, { onDelete: 'set null' }),
+    /** What the rules say should come back. */
+    expectedCents: integer('expected_cents').notNull(),
+    /** What actually landed. Null until it does. */
+    postedCents: integer('posted_cents'),
+    /** The charge date — the clock the settling period runs from. */
+    chargedOn: date('charged_on', { mode: 'string' }).notNull(),
+    postedOn: date('posted_on', { mode: 'string' }),
+    status: creditPostingStatusEnum('status').notNull().default('PENDING'),
+    /** The merchant string as it appears on the statement — one of the three
+     *  facts an issuer's chat asks for when you claim a missing credit. */
+    merchantDescriptor: text('merchant_descriptor'),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The overdue sweep reads exactly this: one user's still-unresolved
+    // postings, oldest charge first.
+    index('credit_postings_user_status_charged_idx').on(t.userId, t.status, t.chargedOn),
+  ],
+);
+
+export const creditPostingsRelations = relations(creditPostings, ({ one }) => ({
+  user: one(users, { fields: [creditPostings.userId], references: [users.id] }),
+  bucket: one(creditBuckets, { fields: [creditPostings.bucketId], references: [creditBuckets.id] }),
+  booking: one(bookings, { fields: [creditPostings.bookingId], references: [bookings.id] }),
+}));
+
+export type CreditPostingRow = typeof creditPostings.$inferSelect;
+export type NewCreditPostingRow = typeof creditPostings.$inferInsert;

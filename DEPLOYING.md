@@ -1,10 +1,10 @@
 # Deploying Parity
 
 The stack this repo is built for: **Vercel** (app + three daily/weekly crons), any
-**Postgres** (Neon's free tier works), **Resend** (magic-link email), and one
-**Cloudflare Worker** (the 15-minute claim-deadline sweep — Vercel Hobby crons top out
-at once a day, see the README). Total setup is about fifteen minutes, and every step
-below fails loudly rather than half-working.
+**Postgres** (Neon's free tier works), **Resend** (magic-link email), and a scheduler for
+the 15-minute claim-deadline sweep — GitHub Actions by default, or a Cloudflare Worker
+(Vercel Hobby crons top out at once a day, see the README). Total setup is about fifteen
+minutes, and every step below fails loudly rather than half-working.
 
 ## 1. Postgres
 
@@ -69,6 +69,13 @@ and `VERCEL_PROJECT_ID` as GitHub repository secrets and let CI's deploy job tak
 on every push to `main` (it currently skips itself with a notice until those exist).
 The three daily/weekly crons in `vercel.json` register automatically; Vercel calls
 them with `Authorization: Bearer <CRON_SECRET>`.
+
+> **Careful with `vercel env pull`.** It writes `.env.local`, and Next.js loads
+> `.env.local` at *higher* priority than `.env` — so a pull leaves your local dev server
+> reading and writing the **production** database until you remove the file. Pull it when
+> you genuinely need production credentials (seeding, a one-off migration), then move or
+> delete it. Symptom if you forget: local changes appear to do nothing, because the
+> feature you are testing depends on a migration production has not run yet.
 
 ## 4. The 15-minute sweep
 

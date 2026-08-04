@@ -798,3 +798,69 @@ lesson generalises — a bare `getByText` string is a substring predicate, not a
 and every assertion in this suite that names a short common word needs `exact` or a role
 scope. The suite's other `getByText` calls all name long distinctive sentences and were left
 alone rather than churned speculatively.
+
+### D-163 — Two researched rule gaps: Hyatt's second clock, and Accor
+A 2026-08-04 pass over what cardholders actually complain about surfaced two encodable gaps
+in a table that was otherwise accurate.
+**Hyatt runs two deadlines, not one.** The claim must be filed within 24 hours of booking
+*and* at least 48 hours before check-in. Only the 24-hour clock was modelled, so a stay
+booked three days out showed a comfortable countdown right up until the claim was rejected
+on a rule the user had never been shown. Added as `minHoursBeforeCheckIn`, deliberately a
+per-programme field rather than a Hyatt special case — it is a shape other brands may adopt.
+**Accor was missing entirely.** Added with its own quirks: a screenshot is mandatory rather
+than merely advisable, and the payout splits by sub-brand (10% at Raffles, Fairmont and
+Swissôtel; 25% elsewhere). Parity resolves properties to the chain, not the sub-brand, so
+the **lower** figure is encoded — §0.3 item 3, conservative where a money value is
+ambiguous. `// SPEC-GAP:` Accor also states its floor in euros (€5 or 5%, whichever is
+greater) and this app models USD cents with no FX layer; the absolute limb is carried at
+its numeric value and the percentage limb, which is currency-independent and binds at any
+nightly rate above $100, does the real work.
+
+### D-164 — Tracking whether a statement credit actually posted, not just whether it was earned
+Every credit rule here answered "will this booking earn the credit?". None answered "did the
+money come back?", which is where it is actually lost. Three documented failure modes: some
+benefits require enrolment *before* the purchase and are simply forfeit otherwise; issuer-side
+faults have withheld a whole cohort's credits for weeks (Amex quoted 8–10 weeks during the
+2024 Fine Hotels fault); and normal posting lag for the same benefit has run from same-day to
+twelve days, so there is no moment at which a reasonable person starts chasing.
+**Chosen:** a `credit_postings` table tracking expected-versus-posted per charge, with a
+14-day settling period before anything is called overdue (past the longest *normal* lag, not
+at it — a prompt that fires while the credit is merely slow teaches the user to ignore
+prompts) and a 70-day mark past which patience stops being advice. Its own table rather than
+columns on `bookings`, because one booking can trigger two credits that settle on different
+dates, and because a credit can exist with no booking behind it once logged by hand.
+
+### D-165 — Denial reasons become data, because most denials are contestable
+Best-rate-guarantee approval rates have collapsed — one long-running tally went from 80–90%
+approved in 2011 to under 5% by 2018, one success in ten submissions. The denials are rarely
+"your rate wasn't lower"; they are procedural, pedantic, and a meaningful share are simply
+wrong: agents have rejected claims by asserting a comparison site requires membership when it
+does not, or disputing currency when both pages showed USD.
+**Chosen:** a `DenialCode` taxonomy where each reason carries `appealable`, a `rebuttal` to
+use when it is worth contesting, and a `preventable` note for when it is not. A free-text
+`denial_reason` records *that* a claim died; it cannot tell the user whether to push back, and
+pushing back is the whole difference between a 5% success rate and a recoverable one. The free
+text stays for the issuer's exact words; the code is what drives the advice.
+
+### D-166 — The rule-verification invariant now allows re-verification
+`rules.test.ts` asserted every rule's `verifiedOn` equalled the build-wide `VERIFIED_ON`
+constant. That was right while every rule was written in one sitting and wrong the moment a
+single rule was re-checked on its own — which is exactly what D-163 and D-164 did.
+**Chosen:** assert the invariant that actually matters, in both directions — no rule may be
+*older* than the baseline sweep (that is a rule nobody has looked at since) and none may be
+dated in the future (that is a date someone invented). Rules verified after the baseline are
+the good case; `/settings/rules` already surfaces each rule's own age and staleness badge.
+
+### D-167 — A date-only string is a calendar date, and is never shifted into a display zone
+`formatDate('2026-07-05')` printed **"Jul 4, 2026"**. `new Date('2026-07-05')` is parsed by
+the language spec as UTC midnight; rendering that instant in `America/New_York` moves it back
+to 8pm the previous day. Every date-only value in the product went through that path —
+check-in and check-out, ledger event dates, trip dates, credit charge dates — so a stay
+booked for the 5th displayed as the 4th to every user west of UTC. It had been noticed once:
+`RulesScreen` passes `'UTC'` by hand at its single call site, which is the same bug patched
+locally instead of centrally.
+**Chosen:** `formatDate` detects a `YYYY-MM-DD` argument and formats it in UTC, the zone it
+was parsed in, so it comes back out as the date it says. A real `Date` is a moment and still
+honours the requested zone — only date-only strings are exempt, because only they have no
+time to shift. Found by reading a rendered charge date against the row that produced it;
+the lesson is that the fix belonged in the formatter, not at each call site that noticed.

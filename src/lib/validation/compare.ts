@@ -49,6 +49,7 @@ const BRAND_VALUES = [
   'WYNDHAM',
   'CHOICE',
   'BEST_WESTERN',
+  'ACCOR',
 ] as const satisfies readonly BrandOrNone[];
 
 /** Errors unless `T` is `never`. Used to prove the lists above are exhaustive. */

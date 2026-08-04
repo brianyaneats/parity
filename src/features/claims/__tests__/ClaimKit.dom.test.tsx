@@ -80,6 +80,7 @@ function baseData(overrides: Partial<ClaimKitData> = {}): ClaimKitData {
     submittedAt: null,
     resolvedAt: null,
     denialReason: null,
+    denialCode: null,
     notes: null,
     competingRateId: 'rate-1',
 
@@ -195,20 +196,86 @@ describe('<ClaimKit /> — §7.4 checklist-first order', () => {
     expect(screen.getByText('$100.00')).toBeInTheDocument();
   });
 
-  it('records a denial with a reason', async () => {
+  it('records a denial with a structured code and the issuer’s exact words', async () => {
     const user = userEvent.setup();
     renderKit(baseData({ status: 'SUBMITTED', submittedAt: '2026-07-27T13:00:00Z' }));
 
     await user.click(screen.getByRole('radio', { name: 'Denied' }));
-    await user.type(screen.getByLabelText('Denial reason'), 'Competing rate was member-only.');
+    await user.click(
+      screen.getByRole('radio', { name: 'They say the competing rate needs a login or membership' }),
+    );
+    await user.type(screen.getByLabelText('Their exact words (optional)'), 'Said it needed a login.');
     await user.click(screen.getByRole('button', { name: 'Record outcome' }));
 
-    expect(await screen.findByText(/Denied — Competing rate was member-only\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Denied — Said it needed a login\./)).toBeInTheDocument();
 
     // The defect this guards against: the old kit toasted success without
     // ever reaching the server, so the claim silently auto-expired at
     // T+24h while the user believed it was filed.
     assertPersisted('DENIED');
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).startsWith('/api/claims/') && (init as RequestInit | undefined)?.method === 'PATCH',
+    );
+    expect(String((call?.[1] as RequestInit | undefined)?.body)).toContain('"denialCode":"MEMBERSHIP_GATED"');
+  });
+
+  it('reveals the structured denial-reason picker only once "Denied" is chosen', async () => {
+    const user = userEvent.setup();
+    renderKit(baseData({ status: 'SUBMITTED', submittedAt: '2026-07-27T13:00:00Z' }));
+
+    expect(screen.queryByRole('group', { name: 'Denial reason' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: 'Denied' }));
+
+    expect(screen.getByRole('group', { name: 'Denial reason' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Their exact words (optional)')).toBeInTheDocument();
+  });
+
+  it('shows the rebuttal under "Worth contesting" for an appealable code', async () => {
+    const user = userEvent.setup();
+    renderKit(baseData({ status: 'SUBMITTED', submittedAt: '2026-07-27T13:00:00Z' }));
+
+    await user.click(screen.getByRole('radio', { name: 'Denied' }));
+    await user.click(
+      screen.getByRole('radio', { name: 'They say the competing rate needs a login or membership' }),
+    );
+
+    expect(screen.getByText('Worth contesting')).toBeInTheDocument();
+    expect(screen.getByText(/Verify it yourself in a private window/)).toBeInTheDocument();
+    // The claim-text section already has its own "Copy" button — this proves
+    // the rebuttal grew a second one, not that the first one got relabelled.
+    expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(2);
+  });
+
+  it('shows the prevention note instead of a rebuttal for a non-appealable code', async () => {
+    const user = userEvent.setup();
+    renderKit(baseData({ status: 'SUBMITTED', submittedAt: '2026-07-27T13:00:00Z' }));
+
+    await user.click(screen.getByRole('radio', { name: 'Denied' }));
+    await user.click(screen.getByRole('radio', { name: 'The cancellation policies differ' }));
+
+    expect(screen.getByText('Not worth contesting — for next time')).toBeInTheDocument();
+    expect(screen.getByText(/the one universal, legitimate denial/)).toBeInTheDocument();
+    // No rebuttal exists for this code, so only the claim-text section's own
+    // "Copy" button is on the page.
+    expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(1);
+  });
+
+  it('renders the guidance for an already-resolved denial when the kit is revisited', () => {
+    renderKit(
+      baseData({
+        status: 'DENIED',
+        submittedAt: '2026-07-27T13:00:00Z',
+        resolvedAt: '2026-07-27T18:00:00Z',
+        denialReason: 'Said it needed a login.',
+        denialCode: 'MEMBERSHIP_GATED',
+      }),
+    );
+
+    expect(screen.getByText(/Denied — Said it needed a login\./)).toBeInTheDocument();
+    expect(screen.getByText('Worth contesting')).toBeInTheDocument();
+    expect(screen.getByText(/Verify it yourself in a private window/)).toBeInTheDocument();
   });
 
   it('carries the quiet note that partial approval is common and the figure is an estimate', () => {

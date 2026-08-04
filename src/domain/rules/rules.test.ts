@@ -227,9 +227,24 @@ describe('rule registry invariants — §2.8', () => {
     }
   });
 
-  it('every rule was verified against the same build-wide VERIFIED_ON date', () => {
+  it('no rule claims a verification date older than the build-wide baseline, or in the future', () => {
+    // This used to assert strict equality with `VERIFIED_ON`, which was right
+    // while every rule was written in one sitting and wrong the moment any
+    // single rule was re-checked on its own. The invariant that actually
+    // matters is anti-staleness in both directions: never *older* than the
+    // baseline sweep (that is a rule nobody has looked at since), and never
+    // *newer than today* (that is a date someone invented). Rules verified
+    // after the baseline — the 2026-08-04 posting and best-rate additions —
+    // are the good case, and the `/settings/rules` staleness badge already
+    // reports each rule's own age. See DECISIONS.md D-166.
+    const baseline = Date.parse(`${VERIFIED_ON}T00:00:00Z`);
+    const today = Date.now();
+
     for (const rule of ALL_RULES) {
-      expect(rule.verifiedOn).toBe(VERIFIED_ON);
+      const verified = Date.parse(`${rule.verifiedOn}T00:00:00Z`);
+      expect(Number.isNaN(verified), `${rule.key} has an unparseable verifiedOn`).toBe(false);
+      expect(verified, `${rule.key} predates the baseline sweep`).toBeGreaterThanOrEqual(baseline);
+      expect(verified, `${rule.key} is verified in the future`).toBeLessThanOrEqual(today);
     }
   });
 });

@@ -30,6 +30,7 @@ const BRAND_VALUES = [
   'WYNDHAM',
   'CHOICE',
   'BEST_WESTERN',
+  'ACCOR',
 ] as const satisfies readonly BrandOrNone[];
 
 const CREDIT_KIND_VALUES = ['DINING', 'SPA', 'RESORT', 'ANY'] as const satisfies readonly PropertyCreditKind[];

@@ -182,4 +182,21 @@ describe('date formatting', () => {
       formatDate(new Date('2026-09-01T00:00:00Z'), 'UTC'),
     );
   });
+
+  // A `YYYY-MM-DD` value is a calendar date, not a moment. Parsed as UTC
+  // midnight and rendered in a western zone it used to print the day before —
+  // a stay booked for the 5th displayed as the 4th, everywhere date-only
+  // values appear (check-in/out, ledger events, trips, credit charge dates).
+  it('renders a date-only string as itself, in any display zone', () => {
+    expect(formatDate('2026-07-05', 'America/New_York')).toBe('Jul 5, 2026');
+    expect(formatDate('2026-07-05', 'America/Los_Angeles')).toBe('Jul 5, 2026');
+    expect(formatDate('2026-07-05', 'Asia/Tokyo')).toBe('Jul 5, 2026');
+    expect(formatDate('2026-07-05', 'UTC')).toBe('Jul 5, 2026');
+  });
+
+  it('still shifts a real instant into the requested zone', () => {
+    // The instant case must keep its old behaviour — only date-only strings
+    // are exempt, because only they lack a time to shift.
+    expect(formatDate('2026-07-05T03:00:00Z', 'America/New_York')).toBe('Jul 4, 2026');
+  });
 });

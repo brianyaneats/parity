@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import type { Claim } from '@/domain/claim/Claim';
 import type { ClaimStatus } from '@/domain/claim/ClaimStatus';
+import type { DenialCode } from '@/domain/claim/DenialReason';
 import type { Cents } from '@/domain/shared/cents';
 
 /**
@@ -39,6 +40,7 @@ export type ClaimActionState = 'idle' | 'saving' | 'error';
 export interface TransitionDetails {
   readonly awardedCents?: Cents;
   readonly denialReason?: string;
+  readonly denialCode?: DenialCode;
   readonly notes?: string;
 }
 
@@ -74,6 +76,7 @@ export function useClaimPersistence(): UseClaimPersistenceResult {
             status: next,
             ...(details.awardedCents !== undefined ? { awardedCents: details.awardedCents } : {}),
             ...(details.denialReason ? { denialReason: details.denialReason } : {}),
+            ...(details.denialCode ? { denialCode: details.denialCode } : {}),
             ...(details.notes ? { notes: details.notes } : {}),
           }),
         });
@@ -90,6 +93,7 @@ export function useClaimPersistence(): UseClaimPersistenceResult {
         claim.transitionTo(next, new Date(), {
           awardedCents: details.awardedCents ?? null,
           denialReason: details.denialReason ?? null,
+          denialCode: details.denialCode ?? null,
           notes: details.notes ?? null,
         });
 

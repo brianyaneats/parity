@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import type { ChannelQuote, ChannelResult, StayContext } from '@/domain/engine/types';
+import type { PaymentRoute } from '@/domain/rules/posting.rules';
 
 /**
  * Persisting a comparison, and recording a booking against it — §5.2, §7.3.
@@ -48,7 +49,7 @@ export interface UseSaveComparisonResult {
   /** Id of the persisted comparison, once there is one. */
   readonly comparisonId: string | null;
   save(input: SaveInput): Promise<string | null>;
-  markAsBooked(input: SaveInput, winner: ChannelResult): Promise<boolean>;
+  markAsBooked(input: SaveInput, winner: ChannelResult, paymentRoute?: PaymentRoute): Promise<boolean>;
   reset(): void;
 }
 
@@ -110,7 +111,7 @@ export function useSaveComparison(): UseSaveComparisonResult {
   }, []);
 
   const markAsBooked = useCallback(
-    async (input: SaveInput, winner: ChannelResult): Promise<boolean> => {
+    async (input: SaveInput, winner: ChannelResult, paymentRoute?: PaymentRoute): Promise<boolean> => {
       // Save first when unsaved, so the booking links to the snapshot it was
       // decided from rather than floating free of it.
       const id = comparisonId ?? (await save(input));
@@ -131,6 +132,9 @@ export function useSaveComparison(): UseSaveComparisonResult {
             baseCents: winner.baseCents,
             prepaid: winner.prepaid,
             refundable: winner.refundable,
+            // Distinct from `prepaid`, which is the rate type. This is who
+            // actually took the money — see `posting.rules.ts`.
+            ...(paymentRoute ? { paymentRoute } : {}),
           }),
         });
 

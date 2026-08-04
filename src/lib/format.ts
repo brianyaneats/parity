@@ -132,7 +132,29 @@ export function formatDateTime(value: Date | string, timeZone = 'America/New_Yor
   }).format(date);
 }
 
+/** `YYYY-MM-DD` — a calendar date, with no instant and no zone attached. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A date-only string is rendered as the calendar date it says, never shifted.
+ *
+ * `new Date('2026-07-05')` is parsed by the spec as UTC midnight; formatting
+ * that in `America/New_York` lands on 8pm the *previous* day and prints
+ * "Jul 4, 2026". Every date-only value in this app went through that path —
+ * check-in and check-out dates, ledger event dates, trip dates, credit charge
+ * dates — so a stay booked for the 5th displayed as the 4th to any user west
+ * of UTC. (`RulesScreen` already passed `'UTC'` by hand at one call site,
+ * which is the same bug noticed once and patched locally.)
+ *
+ * A `YYYY-MM-DD` string denotes a calendar date, not a moment, so it is
+ * formatted in UTC — the zone it was parsed in — and comes back out unchanged.
+ * A real `Date`, which *is* a moment, still honours `timeZone`.
+ */
 export function formatDate(value: Date | string, timeZone = 'America/New_York'): string {
+  const dateOnly = typeof value === 'string' && DATE_ONLY.test(value);
   const date = typeof value === 'string' ? new Date(value) : value;
-  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone }).format(date);
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeZone: dateOnly ? 'UTC' : timeZone,
+  }).format(date);
 }

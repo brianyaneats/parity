@@ -54,6 +54,7 @@ export class TransitionClaimUseCase extends CommandUseCase<TransitionClaimInput,
         claim.transitionTo(input.status, ctx.now, {
           awardedCents: input.awardedCents !== undefined ? cents(input.awardedCents) : undefined,
           denialReason: input.denialReason,
+          denialCode: input.denialCode,
           notes: input.notes,
         });
       } catch (error) {

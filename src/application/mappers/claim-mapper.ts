@@ -16,6 +16,7 @@ export function toClaimProps(record: ClaimRecord): ClaimProps {
     submittedAt: record.submittedAt,
     resolvedAt: record.resolvedAt,
     denialReason: record.denialReason,
+    denialCode: record.denialCode,
     notes: record.notes,
   };
 }
@@ -42,6 +43,7 @@ export function toClaimPatch(claim: Claim): ClaimPatch {
     submittedAt: claim.submittedAt,
     resolvedAt: claim.resolvedAt,
     denialReason: claim.denialReason,
+    denialCode: claim.denialCode,
     notes: claim.notes,
   };
 }

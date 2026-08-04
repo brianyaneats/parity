@@ -1,4 +1,5 @@
 import type { Channel } from '@/domain/rules/channels.rules';
+import type { CreditPostingStatus } from '@/domain/credit/CreditPosting';
 
 /**
  * Plain, RSC-serialisable shape of one `credit_buckets` row — §4.2.
@@ -39,4 +40,32 @@ export interface RoutableComparison {
   readonly prepaid: boolean;
   readonly checkIn: string;
   readonly effectiveNetCents: number;
+}
+
+/**
+ * Plain, RSC-serialisable shape of one `credit_postings` row, already joined
+ * to the bucket label and booking property name — "did my statement credit
+ * actually post?" (see `src/domain/credit/CreditPosting.ts`'s own doc
+ * comment). `bucketLabel`/`propertyName` are `null` whenever the posting has
+ * no linked bucket/booking (a credit logged by hand) or the link points at a
+ * booking with no comparison behind it — the UI falls back to the merchant
+ * descriptor in that case, same reasoning `BucketRow` gives for carrying
+ * flat, already-resolved display strings rather than ids the client would
+ * have to re-look-up.
+ */
+export interface PostingListItem {
+  readonly id: string;
+  readonly bucketId: string | null;
+  readonly bookingId: string | null;
+  readonly expectedCents: number;
+  readonly postedCents: number | null;
+  /** ISO `YYYY-MM-DD`. */
+  readonly chargedOn: string;
+  /** ISO `YYYY-MM-DD`, or `null` until posted. */
+  readonly postedOn: string | null;
+  readonly status: CreditPostingStatus;
+  readonly merchantDescriptor: string | null;
+  readonly note: string | null;
+  readonly bucketLabel: string | null;
+  readonly propertyName: string | null;
 }

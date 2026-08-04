@@ -212,7 +212,14 @@ export class RecordBookingUseCase extends CommandUseCase<RecordBookingInput, Rec
         consumedBucket = matchedBucket;
       }
 
-      const bookingRecord = await repos.bookings.create(toNewBookingInput(booking));
+      // `paymentRoute` is attached here rather than carried on the aggregate:
+      // it constrains no invariant and enters no calculation — it is a record
+      // of who took the money, used later to decide whether a statement credit
+      // was ever going to post (`posting.rules.ts`).
+      const bookingRecord = await repos.bookings.create({
+        ...toNewBookingInput(booking),
+        paymentRoute: input.paymentRoute ?? null,
+      });
 
       // Now that the booking row exists, the events that reference it can land.
       if (consumedBucket) {

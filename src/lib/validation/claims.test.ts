@@ -20,6 +20,22 @@ describe('claimPatchSchema — §5.2 PATCH /api/claims/:id', () => {
     expect(claimPatchSchema.safeParse({ status: 'DENIED', denialReason: 'no longer public' }).success).toBe(true);
   });
 
+  it('accepts a DENIED outcome carrying a structured denialCode', () => {
+    expect(
+      claimPatchSchema.safeParse({ status: 'DENIED', denialCode: 'MEMBERSHIP_GATED' }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a denialCode outside the DenialReason.ts union', () => {
+    const result = claimPatchSchema.safeParse({ status: 'DENIED', denialCode: 'RATE_WAS_TOO_HIGH' });
+    expect(result.success).toBe(false);
+    expect(!result.success && result.error.issues[0]?.path).toEqual(['denialCode']);
+  });
+
+  it('does not require a denialCode on DENIED — the code is optional so old rows stay valid', () => {
+    expect(claimPatchSchema.safeParse({ status: 'DENIED' }).success).toBe(true);
+  });
+
   it('does not require awardedCents for SUBMITTED or NOT_PURSUED', () => {
     expect(claimPatchSchema.safeParse({ status: 'SUBMITTED' }).success).toBe(true);
     expect(claimPatchSchema.safeParse({ status: 'NOT_PURSUED' }).success).toBe(true);

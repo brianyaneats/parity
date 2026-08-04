@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth/session';
 import { EmptyState } from '@/components/ui';
 import { ClaimKit, type ClaimKitData } from '@/features/claims/ClaimKit';
+import type { DenialCode } from '@/domain/claim/DenialReason';
 
 export const metadata = { title: 'Claim kit · Parity' };
 
@@ -113,6 +114,9 @@ async function loadClaimKit(id: string, userId: string): Promise<LoadResult> {
       submittedAt: claim.submittedAt?.toISOString() ?? null,
       resolvedAt: claim.resolvedAt?.toISOString() ?? null,
       denialReason: claim.denialReason,
+      // The `denial_code` column is plain `text` — see `DrizzleClaimRepository`'s
+      // `ClaimRowLike` for the same cast.
+      denialCode: claim.denialCode as DenialCode | null,
       notes: claim.notes,
       competingRateId: claim.competingRateId,
 

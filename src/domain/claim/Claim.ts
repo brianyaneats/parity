@@ -11,6 +11,7 @@ import {
   TERMINAL_STATUSES,
   type ClaimStatus,
 } from './ClaimStatus';
+import type { DenialCode } from './DenialReason';
 
 export type ClaimKind =
   | 'CHASE_PM'
@@ -21,7 +22,8 @@ export type ClaimKind =
   | 'BRG_IHG'
   | 'BRG_WYNDHAM'
   | 'BRG_CHOICE'
-  | 'BRG_BEST_WESTERN';
+  | 'BRG_BEST_WESTERN'
+  | 'BRG_ACCOR';
 
 export interface ClaimProps {
   readonly id: string;
@@ -36,6 +38,9 @@ export interface ClaimProps {
   readonly submittedAt: Date | null;
   readonly resolvedAt: Date | null;
   readonly denialReason: string | null;
+  /** Structured counterpart to `denialReason` — optional so every existing
+   *  caller that predates `DenialReason.ts` still constructs a valid `Claim`. */
+  readonly denialCode?: DenialCode | null;
   readonly notes: string | null;
 }
 
@@ -68,6 +73,7 @@ export class Claim extends AggregateRoot {
   private submitted: Date | null;
   private resolved: Date | null;
   private denial: string | null;
+  private code: DenialCode | null;
   private note: string | null;
 
   private constructor(props: ClaimProps) {
@@ -83,6 +89,7 @@ export class Claim extends AggregateRoot {
     this.submitted = props.submittedAt;
     this.resolved = props.resolvedAt;
     this.denial = props.denialReason;
+    this.code = props.denialCode ?? null;
     this.note = props.notes;
   }
 
@@ -157,6 +164,9 @@ export class Claim extends AggregateRoot {
   public get denialReason(): string | null {
     return this.denial;
   }
+  public get denialCode(): DenialCode | null {
+    return this.code;
+  }
   public get notes(): string | null {
     return this.note;
   }
@@ -190,7 +200,12 @@ export class Claim extends AggregateRoot {
   public transitionTo(
     next: ClaimStatus,
     now: Date,
-    details: { awardedCents?: Cents | null; denialReason?: string | null; notes?: string | null } = {},
+    details: {
+      awardedCents?: Cents | null;
+      denialReason?: string | null;
+      denialCode?: DenialCode | null;
+      notes?: string | null;
+    } = {},
   ): void {
     if (!ALLOWED_TRANSITIONS[this.currentStatus].includes(next)) {
       throw new InvalidTransitionError('Claim', this.currentStatus, next);
@@ -223,6 +238,7 @@ export class Claim extends AggregateRoot {
     if (next === 'SUBMITTED') this.submitted = now;
     if (TERMINAL_STATUSES.has(next)) this.resolved = now;
     if (details.denialReason !== undefined) this.denial = details.denialReason;
+    if (details.denialCode !== undefined) this.code = details.denialCode;
     if (details.notes !== undefined) this.note = details.notes;
 
     this.recordEvent(
@@ -295,6 +311,7 @@ export class Claim extends AggregateRoot {
       submittedAt: this.submitted?.toISOString() ?? null,
       resolvedAt: this.resolved?.toISOString() ?? null,
       denialReason: this.denial,
+      denialCode: this.code,
       notes: this.note,
     };
   }

@@ -43,6 +43,7 @@ const BRAND_VALUES = [
   'WYNDHAM',
   'CHOICE',
   'BEST_WESTERN',
+  'ACCOR',
 ] as const satisfies readonly BrandOrNone[];
 
 type AssertNever<T extends never> = T;
@@ -58,6 +59,7 @@ const BRAND_LABELS: Readonly<Record<BrandOrNone, string>> = Object.freeze({
   WYNDHAM: 'Wyndham',
   CHOICE: 'Choice',
   BEST_WESTERN: 'Best Western',
+  ACCOR: 'Accor',
 });
 
 const BRAND_OPTIONS = BRAND_VALUES.map((brand) => ({ value: brand, label: BRAND_LABELS[brand] }));

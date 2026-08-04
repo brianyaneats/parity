@@ -1,7 +1,38 @@
 import { z } from 'zod';
 import { nonNegativeCents } from './shared';
+import type { DenialCode } from '@/domain/claim/DenialReason';
 
 /** Validation for `/api/claims` — §5.2, §7.4. */
+
+/**
+ * Spelled out here rather than derived from `DENIAL_CODES`, for the same
+ * reason `compare.ts` spells out its channel and brand lists: `z.enum()`
+ * needs a literal tuple to infer a union, and deriving one from a `readonly
+ * DenialCode[]` collapses to `string`. `UncoveredDenialCode` below keeps the
+ * duplication honest — add a code to `DenialReason.ts` without adding it
+ * here and the build fails.
+ */
+const DENIAL_CODE_VALUES = [
+  'RATE_MOVED',
+  'MEMBERSHIP_GATED',
+  'CANCELLATION_MISMATCH',
+  'ROOM_TYPE_MISMATCH',
+  'OCCUPANCY_MISMATCH',
+  'PACKAGE_INCLUSIONS_DIFFER',
+  'NOT_LOWEST_OWN_RATE',
+  'CURRENCY_DISPUTE',
+  'SITE_NOT_ELIGIBLE',
+  'DEAL_OF_THE_DAY',
+  'WINDOW_MISSED',
+  'FREQUENCY_LIMIT',
+  'PROPERTY_EXCLUDED',
+  'OTHER',
+] as const satisfies readonly DenialCode[];
+
+type AssertNever<T extends never> = T;
+export type UncoveredDenialCode = AssertNever<Exclude<DenialCode, (typeof DENIAL_CODE_VALUES)[number]>>;
+
+export const denialCodeSchema = z.enum(DENIAL_CODE_VALUES);
 
 export const CLAIM_STATUS_VALUES = [
   'ELIGIBLE',
@@ -39,6 +70,7 @@ export const claimPatchSchema = z
     status: claimStatusSchema,
     awardedCents: nonNegativeCents.optional(),
     denialReason: z.string().trim().max(2000).optional(),
+    denialCode: denialCodeSchema.optional(),
     notes: z.string().trim().max(4000).optional(),
   })
   .refine((value) => !(value.status === 'APPROVED' || value.status === 'PARTIAL') || value.awardedCents !== undefined, {

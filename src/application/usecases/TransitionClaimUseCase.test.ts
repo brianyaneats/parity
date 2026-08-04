@@ -128,6 +128,26 @@ describe('TransitionClaimUseCase — §5.2 claim → savings-event side effect',
     expect(uow.savingsEvents.rows).toHaveLength(0);
   });
 
+  it('persists the structured denialCode alongside the free-text reason', async () => {
+    const uow = new InMemoryUnitOfWork();
+    await seedClaim(uow, 'SUBMITTED');
+    const useCase = new TransitionClaimUseCase(deps(), uow);
+
+    const updated = await useCase.execute(
+      {
+        id: 'claim-1',
+        userId: 'user-1',
+        status: 'DENIED',
+        denialReason: 'Said the rate needed a login.',
+        denialCode: 'MEMBERSHIP_GATED',
+      },
+      ctx,
+    );
+
+    expect(updated.denialCode).toBe('MEMBERSHIP_GATED');
+    expect((await uow.claims.findById('claim-1', 'user-1'))?.denialCode).toBe('MEMBERSHIP_GATED');
+  });
+
   it('§7.4: an expired claim can only move to EXPIRED or NOT_PURSUED — SUBMITTED is rejected as a conflict', async () => {
     const uow = new InMemoryUnitOfWork();
     await seedClaim(uow, 'EXPIRED');

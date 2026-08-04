@@ -17,6 +17,7 @@ import {
   ruleFlags,
   notificationsSent,
   evidenceBlobs,
+  creditPostings,
 } from '../schema';
 
 /**
@@ -68,6 +69,7 @@ export interface AccountExport {
   readonly notificationsSent: readonly Record<string, unknown>[];
   /** `evidence_blobs` metadata only — see this file's module doc for why `bytes` is excluded. */
   readonly evidenceBlobs: readonly Record<string, unknown>[];
+  readonly creditPostings: readonly Record<string, unknown>[];
   /** Object-storage keys the user should also be given, per §12. */
   readonly screenshotKeys: readonly string[];
 }
@@ -88,6 +90,7 @@ export async function exportAccount(userId: string, now: Date): Promise<AccountE
     flagRows,
     notificationRows,
     evidenceBlobRows,
+    creditPostingRows,
   ] = await Promise.all([
     db.select().from(users).where(eq(users.id, userId)),
     db.select().from(userSettings).where(eq(userSettings.userId, userId)),
@@ -114,6 +117,7 @@ export async function exportAccount(userId: string, now: Date): Promise<AccountE
       })
       .from(evidenceBlobs)
       .where(eq(evidenceBlobs.userId, userId)),
+    db.select().from(creditPostings).where(eq(creditPostings.userId, userId)),
   ]);
 
   // The two child tables scoped only through their parent comparison.
@@ -147,6 +151,7 @@ export async function exportAccount(userId: string, now: Date): Promise<AccountE
     ruleFlags: flagRows,
     notificationsSent: notificationRows,
     evidenceBlobs: evidenceBlobRows,
+    creditPostings: creditPostingRows,
     screenshotKeys: competingRateRows
       .map((row) => row.screenshotKey)
       .filter((key): key is string => typeof key === 'string' && key.length > 0),
@@ -192,6 +197,7 @@ export async function deleteAccount(userId: string, now: Date): Promise<Deletion
     ruleFlags: snapshot.ruleFlags.length,
     notificationsSent: snapshot.notificationsSent.length,
     evidenceBlobs: snapshot.evidenceBlobs.length,
+    creditPostings: snapshot.creditPostings.length,
   };
 
   await db.delete(users).where(eq(users.id, userId));

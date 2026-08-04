@@ -1,6 +1,7 @@
 import type { Channel } from '@/domain/rules/channels.rules';
 import type { Cents } from '@/domain/shared/cents';
 import type { BookingStatus } from '@/domain/booking/Booking';
+import type { PaymentRoute } from '@/domain/rules/posting.rules';
 
 export type { BookingStatus };
 
@@ -21,6 +22,8 @@ export interface BookingRecord {
   readonly cancelDeadline: string | null;
   readonly bucketId: string | null;
   readonly status: BookingStatus;
+  /** Who processed the charge — decides whether a portal credit can post. */
+  readonly paymentRoute: PaymentRoute | null;
   readonly createdAt: Date;
 }
 
@@ -41,6 +44,14 @@ export interface NewBookingInput {
   readonly cancelDeadline: string | null;
   readonly bucketId: string | null;
   readonly status: BookingStatus;
+  /** Who processed the charge — decides whether a portal credit can post. */
+  /**
+   * Who processed the charge — decides whether a portal credit can post.
+   * Optional because it is genuinely unknown for bookings recorded before this
+   * existed and for users who decline to say; guessing would fabricate the one
+   * fact the credit-posting check depends on.
+   */
+  readonly paymentRoute?: PaymentRoute | null;
 }
 
 export interface BookingPatch {

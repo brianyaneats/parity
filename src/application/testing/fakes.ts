@@ -179,7 +179,13 @@ export class InMemoryBookingRepository implements BookingRepository {
   public readonly rows: BookingRecord[] = [];
 
   public async create(input: NewBookingInput): Promise<BookingRecord> {
-    const record: BookingRecord = { ...input, createdAt: new Date() };
+    // `paymentRoute` is optional on the way in and always present on the way
+    // out — same normalisation the Drizzle repository does on insert.
+    const record: BookingRecord = {
+      ...input,
+      paymentRoute: input.paymentRoute ?? null,
+      createdAt: new Date(),
+    };
     this.rows.push(record);
     return record;
   }
@@ -218,6 +224,7 @@ export class InMemoryClaimRepository implements ClaimRepository {
       submittedAt: null,
       resolvedAt: null,
       denialReason: null,
+      denialCode: null,
       notes: null,
       createdAt: new Date(),
     };
@@ -254,6 +261,7 @@ export class InMemoryClaimRepository implements ClaimRepository {
       ...(patch.submittedAt !== undefined ? { submittedAt: patch.submittedAt } : {}),
       ...(patch.resolvedAt !== undefined ? { resolvedAt: patch.resolvedAt } : {}),
       ...(patch.denialReason !== undefined ? { denialReason: patch.denialReason } : {}),
+      ...(patch.denialCode !== undefined ? { denialCode: patch.denialCode } : {}),
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
     };
     this.rows[index] = updated;

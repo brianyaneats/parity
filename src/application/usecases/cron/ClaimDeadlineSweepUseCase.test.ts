@@ -56,6 +56,7 @@ function seedOpenClaim(
     submittedAt: null,
     resolvedAt: null,
     denialReason: null,
+    denialCode: null,
     notes: null,
     createdAt: options.bookedAt,
   });

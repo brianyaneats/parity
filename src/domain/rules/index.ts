@@ -7,3 +7,4 @@ export * from './perks.rules';
 export * from './brg.rules';
 export * from './fora.rules';
 export * from './registry';
+export * from './posting.rules';

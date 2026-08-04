@@ -52,6 +52,20 @@ export interface BrgProgramme {
   readonly minimumGap: BrgMinimumGap;
   /** Claim window, hours from booking. Same 24 hours across the board — §2.3.3. */
   readonly claimWindowHours: number;
+  /**
+   * A second, independent deadline some brands impose: the claim must also be
+   * filed at least this many hours *before check-in*. Hyatt is the one that
+   * bites — a stay booked inside 48 hours of arrival has no claimable window
+   * at all, however fresh the booking is. Encoded because the 24-hour
+   * countdown alone reads as "you have time" right up until the claim is
+   * rejected on a rule the user never saw.
+   */
+  readonly minHoursBeforeCheckIn?: number;
+  /**
+   * Brands that reject a claim without an attached screenshot, rather than
+   * merely preferring one. Accor states this outright.
+   */
+  readonly requiresScreenshot?: boolean;
   readonly payoutDescription: string;
   readonly exclusions: string;
   /** Rate-limit note, where one exists. */
@@ -61,7 +75,24 @@ export interface BrgProgramme {
 /** §2.3.3: the same 24-hour claim window applies across every chain programme. */
 export const BRG_CLAIM_WINDOW_HOURS = 24;
 
+/**
+ * Hyatt's second clock. Verified 2026-08-04 against FrequentMiler's programme
+ * guide, which states the claim must be made "within 24 hours of making your
+ * reservation" *and* at least 48 hours before the stay.
+ */
+export const HYATT_MIN_HOURS_BEFORE_CHECK_IN = 48;
+
 const DOLLAR_PER_NIGHT = 100 as Cents;
+
+/**
+ * Accor states its floor in euros (€5 or 5% per night, whichever is greater).
+ * This app models money as USD cents with no FX layer (§3.1), so the absolute
+ * limb is carried at its numeric value and the *percentage* limb — which is
+ * currency-independent and, at any nightly rate above $100, the binding one —
+ * does the real work. Under-claims rather than over-claims where they diverge.
+ * `// SPEC-GAP:` see DECISIONS.md D-163.
+ */
+const ACCOR_ABSOLUTE_FLOOR = 500 as Cents;
 
 export const BRG_PROGRAMMES: Readonly<Record<ChainBrand, BrgProgramme>> = Object.freeze({
   HILTON: {
@@ -92,8 +123,11 @@ export const BRG_PROGRAMMES: Readonly<Record<ChainBrand, BrgProgramme>> = Object
     pointsKicker: 5_000,
     minimumGap: { kind: 'ABSOLUTE', perNightCents: DOLLAR_PER_NIGHT },
     claimWindowHours: BRG_CLAIM_WINDOW_HOURS,
+    // Hyatt is the exception to "24 hours is the only clock": the claim must
+    // also land at least 48 hours before check-in. See D-163.
+    minHoursBeforeCheckIn: HYATT_MIN_HOURS_BEFORE_CHECK_IN,
     payoutDescription: 'Matches the lower rate and takes a further 20% off, or awards 5,000 points.',
-    exclusions: 'Up to three rooms per night.',
+    exclusions: 'Up to three rooms per night. The claim must also be filed at least 48 hours before check-in.',
   },
   IHG: {
     brand: 'IHG',
@@ -141,6 +175,23 @@ export const BRG_PROGRAMMES: Readonly<Record<ChainBrand, BrgProgramme>> = Object
     payoutDescription: 'Matches the lower rate and adds a $100 gift card.',
     exclusions: '',
     frequencyLimit: 'One claim per 30 days.',
+  },
+  ACCOR: {
+    brand: 'ACCOR',
+    label: 'Accor Best Price Guarantee',
+    // Accor pays 10% off at Raffles, Fairmont and Swissôtel and 25% off at its
+    // other brands. Parity's property model resolves to the chain, not the
+    // sub-brand, so the *lower* payout is the one encoded — §0.3 item 3 takes
+    // the conservative option where a money figure is ambiguous.
+    discountBps: 1_000,
+    pointsKicker: 0,
+    minimumGap: { kind: 'GREATER_OF', perNightCents: ACCOR_ABSOLUTE_FLOOR, bps: 500 },
+    claimWindowHours: BRG_CLAIM_WINDOW_HOURS,
+    requiresScreenshot: true,
+    payoutDescription:
+      'Matches the lower rate and takes a further 10% off (25% outside Raffles, Fairmont and Swissôtel).',
+    exclusions:
+      'Excludes SLS, Mondrian, Rixos and around 25 other brands, plus Macau. A screenshot is mandatory, not optional.',
   },
 });
 

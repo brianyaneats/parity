@@ -10,7 +10,8 @@ import { CREDIT_BUCKET_DEFINITIONS, type CreditBucketDefinition } from '@/domain
 import type { CardKind } from '@/domain/rules/price-match.rules';
 import { cents } from '@/domain/shared/cents';
 import { formatCents, formatDays, formatNights } from '@/lib/format';
-import type { BucketRow, RoutableComparison } from './types';
+import { CreditPostingTracker } from './CreditPostingTracker';
+import type { BucketRow, PostingListItem, RoutableComparison } from './types';
 
 /**
  * `/credits` — the credit wallet (§7.5).
@@ -25,6 +26,8 @@ import type { BucketRow, RoutableComparison } from './types';
 export interface CreditWalletProps {
   readonly buckets: readonly BucketRow[];
   readonly comparisons: readonly RoutableComparison[];
+  /** "Did it actually post?" rows — §ownership: `CreditPostingTracker`. */
+  readonly postings: readonly PostingListItem[];
   readonly todayIsoDate: string;
   /** False when `buckets` was computed from rule definitions rather than read
    * from the database — see `features/credits/fallback.ts`. The headline
@@ -51,6 +54,7 @@ const CARD_ORDER: readonly CreditBucketDefinition['card'][] = ['AMEX_PLATINUM', 
 export function CreditWallet({
   buckets: rows,
   comparisons,
+  postings,
   todayIsoDate,
   isLive,
   activeCardKinds,
@@ -93,6 +97,14 @@ export function CreditWallet({
 
   const unburned = totalUnburnedCents(buckets, todayIsoDate);
   const nearest = nearestExpiry(buckets, todayIsoDate);
+
+  // Only offered when the wallet is reading real rows — a fallback bucket's
+  // id (`fallback-KEY`, see `computeFallbackBuckets`) isn't a `credit_buckets`
+  // row `recordPosting`'s ownership check could ever find.
+  const bucketOptions = useMemo(
+    () => (isLive ? buckets.map((bucket) => ({ id: bucket.id, label: bucket.label })) : []),
+    [buckets, isLive],
+  );
 
   const byCard = useMemo(() => {
     const groups = new Map<CreditBucketDefinition['card'], CreditBucket[]>();
@@ -175,6 +187,8 @@ export function CreditWallet({
           .
         </p>
       ) : null}
+
+      <CreditPostingTracker postings={postings} bucketOptions={bucketOptions} />
 
       {visibleCards.map((card) => {
         const list = byCard.get(card);

@@ -4,7 +4,7 @@ import { CreditWallet } from '@/features/credits/CreditWallet';
 import { computeFallbackBuckets } from '@/features/credits/fallback';
 import { toIsoDate } from '@/domain/credit/CreditWindow';
 import type { CardKind } from '@/domain/rules/price-match.rules';
-import type { BucketRow, RoutableComparison } from '@/features/credits/types';
+import type { BucketRow, PostingListItem, RoutableComparison } from '@/features/credits/types';
 
 export const metadata = { title: 'Credits · Parity' };
 
@@ -31,9 +31,10 @@ export default async function CreditsPage() {
   if (!session) redirect('/login');
 
   const todayIsoDate = toIsoDate(new Date());
-  const [{ buckets, isLive }, activeCardKinds] = await Promise.all([
+  const [{ buckets, isLive }, activeCardKinds, postings] = await Promise.all([
     loadBuckets(session.userId, todayIsoDate),
     loadActiveCardKinds(session.userId),
+    loadCreditPostings(session.userId),
   ]);
   const comparisons = loadRoutableComparisons();
 
@@ -41,6 +42,7 @@ export default async function CreditsPage() {
     <CreditWallet
       buckets={buckets}
       comparisons={comparisons}
+      postings={postings}
       todayIsoDate={todayIsoDate}
       isLive={isLive}
       activeCardKinds={activeCardKinds}
@@ -86,6 +88,24 @@ async function loadBuckets(
     // A defect in the pure fallback computation should still render a usable
     // (empty) wallet rather than crash the route.
     return { buckets: [], isLive: false };
+  }
+}
+
+/**
+ * "Did it actually post?" read. Same degrade-the-read-not-the-route shape as
+ * `loadActiveCardKinds`/`loadBuckets` above: an unreachable database (or a
+ * caller with nothing tracked yet) shows `CreditPostingTracker`'s own honest
+ * empty state rather than crashing the page — there is no "fallback" data to
+ * compute here the way `computeFallbackBuckets` can for buckets, since a
+ * posting is something a real user actually logged, not a rule-derived
+ * constant.
+ */
+async function loadCreditPostings(userId: string): Promise<PostingListItem[]> {
+  try {
+    const { listCreditPostings } = await import('@/infrastructure/persistence/queries/credit-postings');
+    return await listCreditPostings(userId);
+  } catch {
+    return [];
   }
 }
 
