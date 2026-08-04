@@ -1,0 +1,46 @@
+# The 15-minute claim-deadline sweep, scheduled by GitHub Actions.
+#
+# This job exists because the 24-hour price-match window must be checked every
+# 15 minutes and Vercel Hobby's native crons top out at once a day (README,
+# D-152's cron section). The original design put this on a Cloudflare Worker
+# (infra/cron-worker/ still works and documents that path); GitHub Actions
+# does the same HTTP call with one fewer account and no new runtime — the
+# tradeoff is that scheduled workflows are best-effort (typically on time,
+# occasionally minutes late, skipped entirely if the repo goes 60 days without
+# activity). The sweep is idempotent and each run re-examines every open
+# claim, so a late or missed tick delays a nudge; it never loses one.
+#
+# Requires two pieces of repo configuration:
+#   secrets.CRON_SECRET       — same value as Vercel's CRON_SECRET env var
+#   vars.PARITY_BASE_URL      — the production origin, e.g. https://parity.vercel.app
+# Absent either, the job exits 0 with a notice rather than failing the badge:
+# an unconfigured scheduler on a fork should be silent, not red.
+name: claim-deadline-sweep
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the sweep route
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PARITY_BASE_URL: ${{ vars.PARITY_BASE_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$PARITY_BASE_URL" ]; then
+            echo "::notice title=Sweep skipped::Set the CRON_SECRET repo secret and PARITY_BASE_URL repo variable to enable the schedule."
+            exit 0
+          fi
+          status=$(curl -s -o /tmp/body -w "%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$PARITY_BASE_URL/api/cron/claim-deadline-sweep")
+          echo "HTTP $status"
+          cat /tmp/body
+          [ "$status" = "200" ]

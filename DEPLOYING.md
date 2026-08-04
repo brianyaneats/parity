@@ -8,8 +8,12 @@ below fails loudly rather than half-working.
 
 ## 1. Postgres
 
-Create a database (e.g. [neon.tech](https://neon.tech) → new project) and copy its
-connection string. Nothing else — migrations run automatically at deploy time:
+Two paths. **Marketplace (no credential handling):** `pnpm dlx vercel integration add neon`
+— accept the terms link it prints, and Vercel provisions a Neon database and injects
+`DATABASE_URL` into the project's env directly; the connection string never passes through
+your clipboard. **Bring your own:** create a database (e.g. [neon.tech](https://neon.tech)
+→ new project), copy its connection string, and add it as the `DATABASE_URL` env var
+yourself in step 3. Either way, migrations run automatically at deploy time:
 `vercel.json`'s `buildCommand` is `pnpm db:migrate && pnpm build`, and the migrator is
 idempotent (it tracks applied migrations in `drizzle.__drizzle_migrations`). A build
 with no reachable `DATABASE_URL` fails, on purpose.
@@ -27,7 +31,9 @@ it is also not needed, since sign-up is self-serve.
 
 ## 2. Resend
 
-[resend.com](https://resend.com) → API key. Verify a sending domain if you have one;
+Same two paths: `pnpm dlx vercel integration add resend` (accept the terms link;
+`RESEND_API_KEY` is injected without ever being displayed), or
+[resend.com](https://resend.com) → API key added by hand. Verify a sending domain if you have one;
 otherwise their shared `onboarding@resend.dev` sender works for testing but delivers
 to your own inbox only. `EMAIL_FROM` must match a sender Resend accepts, e.g.
 `Parity <parity@yourdomain.com>`.
@@ -64,7 +70,25 @@ on every push to `main` (it currently skips itself with a notice until those exi
 The three daily/weekly crons in `vercel.json` register automatically; Vercel calls
 them with `Authorization: Bearer <CRON_SECRET>`.
 
-## 4. The 15-minute sweep (Cloudflare Worker)
+## 4. The 15-minute sweep
+
+Two interchangeable schedulers call the same route with the same bearer token; pick one.
+
+**GitHub Actions (default — no extra account).** `.github/workflows/claim-sweep.yml` runs
+every 15 minutes once two pieces of repo config exist:
+
+```bash
+gh secret set CRON_SECRET --repo <you>/parity          # same value as Vercel's
+gh variable set PARITY_BASE_URL --repo <you>/parity --body "https://<your-url>"
+```
+
+Unconfigured, the workflow exits quietly with a notice instead of failing the badge.
+Caveat worth knowing: GitHub schedules are best-effort — usually on time, occasionally
+minutes late, and paused if the repo sees no activity for 60 days. The sweep is
+idempotent and re-examines every open claim each run, so a late tick delays a nudge;
+it never loses one.
+
+**Cloudflare Worker (alternative — exact timing).**
 
 ```bash
 cd infra/cron-worker
